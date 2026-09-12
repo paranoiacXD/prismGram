@@ -123,6 +123,11 @@ class ChatListRepository(
                 rebuild()
             }
 
+            is TdApi.UpdateChatNotificationSettings -> {
+                chats[update.chatId]?.notificationSettings = update.notificationSettings
+                rebuild()
+            }
+
             is TdApi.UpdateChatTitle -> {
                 chats[update.chatId]?.title = update.title
                 rebuild()
@@ -162,6 +167,7 @@ class ChatListRepository(
                 lastMessageDate = chat.lastMessage?.date?.toLong(),
                 unreadCount = chat.unreadCount,
                 isPinned = position.isPinned,
+                isMuted = (chat.notificationSettings?.muteFor ?: 0) > 0,
                 order = position.order,
             )
         }.sortedWith(

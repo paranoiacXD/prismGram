@@ -1,5 +1,11 @@
 package com.prismgram.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -73,19 +79,34 @@ fun PrismGramRoot(
         ) {
             val state = authState
             when {
-                state is AuthState.Ready && showProfile ->
-                    AccountScreen(
-                        state = accountState,
-                        onBack = { showProfile = false },
-                    ) { accountViewModel.signOut() }
-
                 state is AuthState.Ready ->
-                    ChatListScreen(
-                        state = chatListState,
-                        myAvatarPath = (accountState as? AccountUiState.Loaded)?.info?.photoPath,
-                        onOpenProfile = { showProfile = true },
-                        onChatClick = { },
-                    )
+                    AnimatedContent(
+                        targetState = showProfile,
+                        transitionSpec = {
+                            if (targetState) {
+                                (slideInHorizontally { it } + fadeIn()) togetherWith
+                                    (slideOutHorizontally { -it / 4 } + fadeOut())
+                            } else {
+                                (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
+                                    (slideOutHorizontally { it } + fadeOut())
+                            }
+                        },
+                        label = "main",
+                    ) { profile ->
+                        if (profile) {
+                            AccountScreen(
+                                state = accountState,
+                                onBack = { showProfile = false },
+                            ) { accountViewModel.signOut() }
+                        } else {
+                            ChatListScreen(
+                                state = chatListState,
+                                myAvatarPath = (accountState as? AccountUiState.Loaded)?.info?.photoPath,
+                                onOpenProfile = { showProfile = true },
+                                onChatClick = { },
+                            )
+                        }
+                    }
 
                 showPhoneEntry ->
                     PhoneScreen(busy) {

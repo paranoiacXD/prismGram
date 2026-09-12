@@ -14,6 +14,7 @@ data class ChatListItem(
     val lastMessageDate: Long?,
     val unreadCount: Int,
     val isPinned: Boolean,
+    val isMuted: Boolean,
     val order: Long,
 )
 

@@ -1,5 +1,11 @@
 package com.prismgram.ui.chats
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -119,7 +125,11 @@ fun ChatListScreen(
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(filtered, key = { it.id }) { chat ->
-                            ChatRow(chat, onClick = { onChatClick(chat) })
+                            ChatRow(
+                                chat = chat,
+                                modifier = Modifier.animateItem(),
+                                onClick = { onChatClick(chat) },
+                            )
                         }
                     }
                 }
@@ -129,9 +139,9 @@ fun ChatListScreen(
 }
 
 @Composable
-private fun ChatRow(chat: ChatListItem, onClick: () -> Unit) {
+private fun ChatRow(chat: ChatListItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -152,14 +162,17 @@ private fun ChatRow(chat: ChatListItem, onClick: () -> Unit) {
                     fontWeight = if (chat.unreadCount > 0) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.weight(1f))
                 if (chat.lastMessageDate != null) {
                     Text(
                         text = formatTimestamp(chat.lastMessageDate),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (chat.isMuted) {
+                            MaterialTheme.colorScheme.outline
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                 }
             }
@@ -168,14 +181,17 @@ private fun ChatRow(chat: ChatListItem, onClick: () -> Unit) {
                 Text(
                     text = chat.lastMessagePreview,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (chat.unreadCount > 0) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.weight(1f))
                 if (chat.unreadCount > 0) {
-                    UnreadBadge(chat.unreadCount)
+                    UnreadBadge(chat.unreadCount, chat.isMuted)
                 }
             }
         }
@@ -210,19 +226,40 @@ private fun ChatAvatar(chat: ChatListItem) {
 }
 
 @Composable
-private fun UnreadBadge(count: Int) {
-    Box(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary)
-            .padding(horizontal = 7.dp, vertical = 2.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = if (count > 99) "99+" else count.toString(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onPrimary,
-        )
+private fun UnreadBadge(count: Int, muted: Boolean) {
+    // grey for silenced chats, colored otherwise, like telegram does it
+    val background = if (muted) {
+        MaterialTheme.colorScheme.surfaceContainerHighest
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    val textColor = if (muted) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        MaterialTheme.colorScheme.onPrimary
+    }
+
+    AnimatedContent(
+        targetState = count,
+        transitionSpec = {
+            (scaleIn(initialScale = 0.6f) + fadeIn()) togetherWith
+                (scaleOut(targetScale = 0.6f) + fadeOut())
+        },
+        label = "unread",
+    ) { value ->
+        Box(
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(background)
+                .padding(horizontal = 7.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = if (value > 99) "99+" else value.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = textColor,
+            )
+        }
     }
 }
 
