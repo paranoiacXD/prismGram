@@ -51,16 +51,19 @@ fun messagePreview(content: TdApi.MessageContent?): String {
     }
 }
 
+// these are stupidly expensive to create, making a fresh one per row per frame
+// was the main reason scrolling tanked to like 13fps
+private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private val monthFormatter = DateTimeFormatter.ofPattern("d MMM")
+private val oldFormatter = DateTimeFormatter.ofPattern("d.MM.yy")
+
 // HH:mm for today, d MMM for this year, d.MM.yy for older
 fun formatTimestamp(unixSeconds: Long): String {
     val time = Instant.ofEpochSecond(unixSeconds).atZone(ZoneId.systemDefault())
     val now = ZonedDateTime.now()
     return when {
-        time.toLocalDate() == now.toLocalDate() ->
-            time.format(DateTimeFormatter.ofPattern("HH:mm"))
-        time.year == now.year ->
-            time.format(DateTimeFormatter.ofPattern("d MMM"))
-        else ->
-            time.format(DateTimeFormatter.ofPattern("d.MM.yy"))
+        time.toLocalDate() == now.toLocalDate() -> time.format(timeFormatter)
+        time.year == now.year -> time.format(monthFormatter)
+        else -> time.format(oldFormatter)
     }
 }

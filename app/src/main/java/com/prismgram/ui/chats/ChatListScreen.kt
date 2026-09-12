@@ -2,14 +2,17 @@ package com.prismgram.ui.chats
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,13 +41,17 @@ import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -75,37 +82,18 @@ fun ChatListScreen(
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
-        // header swaps between title mode and search mode
-        AnimatedContent(
-            targetState = searchOpen,
-            transitionSpec = {
-                if (targetState) {
-                    (slideInVertically { -it / 2 } + fadeIn()) togetherWith
-                        (slideOutVertically { it / 2 } + fadeOut())
-                } else {
-                    (slideInVertically { it / 2 } + fadeIn()) togetherWith
-                        (slideOutVertically { -it / 2 } + fadeOut())
-                }
+        ChatListHeader(
+            myAvatarPath = myAvatarPath,
+            searchOpen = searchOpen,
+            query = query,
+            onQueryChange = { query = it },
+            onOpenSearch = { searchOpen = true },
+            onCloseSearch = {
+                searchOpen = false
+                query = ""
             },
-            label = "header",
-        ) { open ->
-            if (open) {
-                SearchHeader(
-                    query = query,
-                    onQueryChange = { query = it },
-                    onClose = {
-                        searchOpen = false
-                        query = ""
-                    },
-                )
-            } else {
-                MainHeader(
-                    myAvatarPath = myAvatarPath,
-                    onOpenProfile = onOpenProfile,
-                    onOpenSearch = { searchOpen = true },
-                )
-            }
-        }
+            onOpenProfile = onOpenProfile,
+        )
 
         // folder tabs, hidden while searching or when there are none
         AnimatedVisibility(
@@ -148,76 +136,113 @@ fun ChatListScreen(
 }
 
 @Composable
-private fun MainHeader(
+private fun ChatListHeader(
     myAvatarPath: String?,
-    onOpenProfile: () -> Unit,
+    searchOpen: Boolean,
+    query: String,
+    onQueryChange: (String) -> Unit,
     onOpenSearch: () -> Unit,
+    onCloseSearch: () -> Unit,
+    onOpenProfile: () -> Unit,
 ) {
+    // the search field grows out of the icon, the weight does the expanding
+    val fieldWeight by animateFloatAsState(
+        targetValue = if (searchOpen) 1f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "searchField",
+    )
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(searchOpen) {
+        if (searchOpen) focusRequester.requestFocus()
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+            .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "PrismGram",
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onOpenSearch) {
-            Icon(Icons.Filled.Search, contentDescription = "Search")
-        }
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .clickable(onClick = onOpenProfile),
-            contentAlignment = Alignment.Center,
+        AnimatedVisibility(
+            visible = searchOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
         ) {
-            if (myAvatarPath != null) {
-                AsyncImage(
-                    model = File(myAvatarPath),
-                    contentDescription = "My profile",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Filled.Person,
-                    contentDescription = "My profile",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(24.dp),
-                )
+            IconButton(onClick = onCloseSearch) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search")
+            }
+        }
+
+        AnimatedVisibility(
+            visible = !searchOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Text(
+                text = "PrismGram",
+                style = MaterialTheme.typography.headlineSmall,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 12.dp),
+            )
+        }
+
+        Spacer(Modifier.weight((1f - fieldWeight).coerceAtLeast(0.001f)))
+
+        if (fieldWeight > 0.01f) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text("Search") },
+                singleLine = true,
+                shape = CircleShape,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                modifier = Modifier
+                    .weight(fieldWeight)
+                    .padding(start = 4.dp)
+                    .focusRequester(focusRequester),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = !searchOpen,
+            enter = fadeIn() + slideInHorizontally { it / 3 },
+            exit = fadeOut() + slideOutHorizontally { it / 3 },
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onOpenSearch) {
+                    Icon(Icons.Filled.Search, contentDescription = "Search")
+                }
+                AvatarButton(myAvatarPath, onOpenProfile)
             }
         }
     }
 }
 
 @Composable
-private fun SearchHeader(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onClose: () -> Unit,
-) {
-    Row(
+private fun AvatarButton(myAvatarPath: String?, onClick: () -> Unit) {
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        IconButton(onClick = onClose) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search")
+        if (myAvatarPath != null) {
+            AsyncImage(
+                model = File(myAvatarPath),
+                contentDescription = "My profile",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Filled.Person,
+                contentDescription = "My profile",
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(24.dp),
+            )
         }
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            placeholder = { Text("Search") },
-            singleLine = true,
-            shape = CircleShape,
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
 
@@ -363,7 +388,7 @@ private fun UnreadBadge(count: Int, muted: Boolean) {
                 (scaleOut(targetScale = 0.6f) + fadeOut())
         },
         label = "unread",
-    ) { value ->
+        ) { value ->
         Box(
             modifier = Modifier
                 .clip(CircleShape)
@@ -371,8 +396,9 @@ private fun UnreadBadge(count: Int, muted: Boolean) {
                 .padding(horizontal = 7.dp, vertical = 2.dp),
             contentAlignment = Alignment.Center,
         ) {
+            // exact number, even if its huge
             Text(
-                text = if (value > 99) "99+" else value.toString(),
+                text = value.toString(),
                 style = MaterialTheme.typography.labelMedium,
                 color = textColor,
             )

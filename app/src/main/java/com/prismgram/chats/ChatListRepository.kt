@@ -41,6 +41,10 @@ class ChatListRepository(
     private val photoFileChats = ConcurrentHashMap<Int, Long>()
     private val requestedFolderLoads = HashSet<Int>()
 
+    // same chat -> same instance unless something actually changed.
+    // lets compose skip recomposing rows that didnt move
+    private val itemCache = ConcurrentHashMap<Long, ChatListItem>()
+
     // tdlib loves to dump hundreds of updates in a row, without this the list
     // would rebuild + resort itself a few hundred times on startup
     private val rebuildRequests = Channel<Unit>(Channel.CONFLATED)
@@ -66,6 +70,7 @@ class ChatListRepository(
                             chats.clear()
                             photoPaths.clear()
                             photoFileChats.clear()
+                            itemCache.clear()
                             synchronized(requestedFolderLoads) { requestedFolderLoads.clear() }
                             _folders.value = emptyList()
                             _selectedFolderId.value = 0
@@ -241,7 +246,7 @@ class ChatListRepository(
             // order 0 means the chat left the list
             if (position.order == 0L) return@mapNotNull null
 
-            ChatListItem(
+            val fresh = ChatListItem(
                 id = chat.id,
                 title = chat.title.orEmpty().ifBlank { "Unknown" },
                 photoPath = photoPaths[chat.id],
@@ -252,13 +257,24 @@ class ChatListRepository(
                 isMuted = (chat.notificationSettings?.muteFor ?: 0) > 0,
                 order = position.order,
             )
+            // keep the old instance when nothing changed, rows that didnt
+            // change get skipped entirely during recomposition
+            itemCache.compute(chat.id) { _, cached ->
+                if (cached == fresh) cached else fresh
+            } ?: return@mapNotNull null
         }.sortedWith(
             compareByDescending<ChatListItem> { it.isPinned }
                 .thenByDescending { it.order }
                 .thenByDescending { it.id },
         )
 
-        _state.value = if (items.isEmpty()) ChatListUiState.Empty else ChatListUiState.Ready(items)
+        val newState = if (items.isEmpty()) ChatListUiState.Empty else ChatListUiState.Ready(items)
+
+        // bursts of updates often land on the exact same list, no point telling
+        // the ui about it
+        if (_state.value != newState) {
+            _state.value = newState
+        }
     }
 
     private fun ensurePhotos() {

@@ -31,6 +31,12 @@ class TdClient {
         { e -> Log.e(TAG, "Exception in result handler", e) },
     )
 
+    init {
+        // tdlib logs like crazy by default, every network tick goes to logcat.
+        // that alone was eating a core and making the whole app stutter. 1 = errors only
+        runCatching { Client.execute(TdApi.SetLogVerbosityLevel(1)) }
+    }
+
     // send and forget
     fun send(function: TdApi.Function<*>, handler: (TdApi.Object) -> Unit = {}) {
         client.send(function) { obj -> handler(obj) }
