@@ -1,6 +1,9 @@
 package com.prismgram.ui.chat
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,19 +20,31 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Reply
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,8 +56,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,37 +80,124 @@ fun ChatScreen(
     onBack: () -> Unit,
     onLoadMore: () -> Unit,
     onSend: (String) -> Unit,
+    onSetReply: (Long, String) -> Unit,
+    onClearReply: () -> Unit,
+    onEdit: (Long, String) -> Unit,
+    onDelete: (Long, Boolean) -> Unit,
+    onTyping: () -> Unit,
 ) {
     val ready = state as? ChatUiState.Ready
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding(),
-    ) {
-        ChatTopBar(state, onBack)
+    var actionMessage by remember { mutableStateOf<MessageItem?>(null) }
+    var editingMessage by remember { mutableStateOf<MessageItem?>(null) }
+    var viewerPath by remember { mutableStateOf<String?>(null) }
 
-        if (ready?.pinnedText != null) {
-            PinnedBar(ready.pinnedText)
-        }
-
-        Box(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxSize()
+                .imePadding(),
         ) {
-            when (state) {
-                is ChatUiState.Closed -> LoadingScreen("Loading messages…")
-                is ChatUiState.Loading -> LoadingScreen("Loading messages…")
-                is ChatUiState.Error -> ErrorPanel(state.message)
-                is ChatUiState.Ready -> MessageList(state, onLoadMore)
+            ChatTopBar(state, onBack)
+
+            if (ready?.pinnedText != null) {
+                PinnedBar(ready.pinnedText)
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) {
+                when (state) {
+                    is ChatUiState.Closed -> LoadingScreen("Loading messages…")
+                    is ChatUiState.Loading -> LoadingScreen("Loading messages…")
+                    is ChatUiState.Error -> ErrorPanel(state.message)
+                    is ChatUiState.Ready -> MessageList(
+                        state = state,
+                        onLoadMore = onLoadMore,
+                        onLongPress = { actionMessage = it },
+                        onMediaClick = { viewerPath = it },
+                    )
+                }
+            }
+
+            if (ready?.replyToId != null) {
+                ReplyBar(
+                    name = null,
+                    text = ready.replyToText ?: "Message",
+                    onClose = onClearReply,
+                )
+            }
+
+            // channels you cant write to get no input bar
+            if (ready == null || ready.canSend) {
+                ChatInputBar(onSend = onSend, onTyping = onTyping)
             }
         }
 
-        // channels you cant write to get no input bar
-        if (ready == null || ready.canSend) {
-            ChatInputBar(onSend)
+        // fullscreen media viewer
+        viewerPath?.let { path ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.95f))
+                    .clickable { viewerPath = null },
+                contentAlignment = Alignment.Center,
+            ) {
+                AsyncImage(
+                    model = path,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                IconButton(
+                    onClick = { viewerPath = null },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close",
+                        tint = Color.White,
+                    )
+                }
+            }
         }
+    }
+
+    actionMessage?.let { message ->
+        MessageActions(
+            message = message,
+            onDismiss = { actionMessage = null },
+            onReply = {
+                onSetReply(message.id, message.text)
+                actionMessage = null
+            },
+            onCopy = {
+                actionMessage = null
+            },
+            onEdit = {
+                editingMessage = message
+                actionMessage = null
+            },
+            onDelete = {
+                onDelete(message.id, message.isOutgoing)
+                actionMessage = null
+            },
+        )
+    }
+
+    editingMessage?.let { message ->
+        EditDialog(
+            initial = message.text,
+            onDismiss = { editingMessage = null },
+            onSave = { newText ->
+                onEdit(message.id, newText)
+                editingMessage = null
+            },
+        )
     }
 }
 
@@ -102,6 +207,7 @@ private fun ChatTopBar(state: ChatUiState, onBack: () -> Unit) {
     val title = ready?.title ?: "Chat"
     val photoPath = ready?.photoPath
     val saved = ready?.isSavedMessages == true
+    val subtitle = if (ready?.typing == true) "typing…" else null
 
     Row(
         modifier = Modifier
@@ -151,13 +257,21 @@ private fun ChatTopBar(state: ChatUiState, onBack: () -> Unit) {
 
         Spacer(Modifier.width(12.dp))
 
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
     }
 }
 
@@ -197,18 +311,58 @@ private fun PinnedBar(text: String) {
 }
 
 @Composable
-private fun MessageList(state: ChatUiState.Ready, onLoadMore: () -> Unit) {
+private fun ReplyBar(name: String?, text: String, onClose: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 8.dp, top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(34.dp)
+                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            if (name != null) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onClose) {
+            Icon(Icons.Filled.Close, contentDescription = "Cancel reply")
+        }
+    }
+}
+
+@Composable
+private fun MessageList(
+    state: ChatUiState.Ready,
+    onLoadMore: () -> Unit,
+    onLongPress: (MessageItem) -> Unit,
+    onMediaClick: (String) -> Unit,
+) {
     val listState = rememberLazyListState()
     val newestId = state.messages.firstOrNull()?.id
 
-    // jump to the bottom whenever the newest message changes (sent or received)
     LaunchedEffect(newestId) {
         if (newestId != null) {
             runCatching { listState.animateScrollToItem(0) }
         }
     }
 
-    // reaching the end of the reversed list means older messages
     LaunchedEffect(listState, state.messages.size) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
             .distinctUntilChanged()
@@ -236,13 +390,17 @@ private fun MessageList(state: ChatUiState.Ready, onLoadMore: () -> Unit) {
                 }
             },
         ) { message ->
-            MessageRow(message)
+            MessageRow(message, onLongPress, onMediaClick)
         }
     }
 }
 
 @Composable
-private fun MessageRow(message: MessageItem) {
+private fun MessageRow(
+    message: MessageItem,
+    onLongPress: (MessageItem) -> Unit,
+    onMediaClick: (String) -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         if (message.dateLabel != null) {
             DaySeparator(message.dateLabel)
@@ -277,7 +435,7 @@ private fun MessageRow(message: MessageItem) {
                     .padding(vertical = 2.dp),
                 contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart,
             ) {
-                StickerView(message)
+                StickerView(message, onLongPress)
             }
             return@Column
         }
@@ -288,7 +446,7 @@ private fun MessageRow(message: MessageItem) {
                 .padding(vertical = 1.dp),
             contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
-            MessageBubble(message)
+            MessageBubble(message, onLongPress, onMediaClick)
         }
     }
 }
@@ -315,26 +473,39 @@ private fun DaySeparator(label: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun StickerView(message: MessageItem) {
-    if (message.mediaPath != null) {
-        AsyncImage(
-            model = message.mediaPath,
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.size(140.dp),
-        )
-    } else {
-        Text(
-            text = message.showEmoji ?: "\uD83D\uDC45",
-            style = MaterialTheme.typography.displaySmall,
-            modifier = Modifier.padding(8.dp),
-        )
+private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit) {
+    Box(
+        modifier = Modifier.combinedClickable(
+            onClick = { },
+            onLongClick = { onLongPress(message) },
+        ),
+    ) {
+        if (message.mediaPath != null) {
+            AsyncImage(
+                model = message.mediaPath,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(140.dp),
+            )
+        } else {
+            Text(
+                text = message.showEmoji ?: "\uD83D\uDC45",
+                style = MaterialTheme.typography.displaySmall,
+                modifier = Modifier.padding(8.dp),
+            )
+        }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(message: MessageItem) {
+private fun MessageBubble(
+    message: MessageItem,
+    onLongPress: (MessageItem) -> Unit,
+    onMediaClick: (String) -> Unit,
+) {
     Surface(
         shape = RoundedCornerShape(
             topStart = 18.dp,
@@ -347,9 +518,19 @@ private fun MessageBubble(message: MessageItem) {
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh
         },
-        modifier = Modifier.widthIn(max = 320.dp),
+        modifier = Modifier
+            .widthIn(max = 320.dp)
+            .combinedClickable(
+                onClick = { },
+                onLongClick = { onLongPress(message) },
+            ),
     ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+            if (message.replyToText != null) {
+                ReplyQuote(message.replyToName, message.replyToText, message.isOutgoing)
+                Spacer(Modifier.height(4.dp))
+            }
+
             if (!message.isOutgoing && message.senderName != null) {
                 Text(
                     text = message.senderName,
@@ -361,7 +542,7 @@ private fun MessageBubble(message: MessageItem) {
             }
 
             if (message.media != MessageMedia.NONE) {
-                MediaView(message)
+                MediaView(message, onMediaClick)
                 if (message.text.isNotBlank()) Spacer(Modifier.height(6.dp))
             }
 
@@ -383,6 +564,17 @@ private fun MessageBubble(message: MessageItem) {
                     .padding(top = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (message.edited) {
+                    Text(
+                        text = "edited ",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (message.isOutgoing) {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
                 Text(
                     text = message.timeLabel,
                     style = MaterialTheme.typography.labelSmall,
@@ -392,6 +584,14 @@ private fun MessageBubble(message: MessageItem) {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
+                if (message.sending) {
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                    )
+                }
                 if (message.failed) {
                     Spacer(Modifier.width(4.dp))
                     Text(
@@ -406,7 +606,47 @@ private fun MessageBubble(message: MessageItem) {
 }
 
 @Composable
-private fun MediaView(message: MessageItem) {
+private fun ReplyQuote(name: String?, text: String, outgoing: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (outgoing) {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.08f)
+                } else {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                },
+            ),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(30.dp)
+                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
+        )
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            if (name != null) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MediaView(message: MessageItem, onMediaClick: (String) -> Unit) {
     val label = when (message.media) {
         MessageMedia.PHOTO -> "Photo"
         MessageMedia.VIDEO -> "Video"
@@ -419,7 +659,8 @@ private fun MediaView(message: MessageItem) {
             .width(220.dp)
             .height(160.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .clickable { message.mediaPath?.let(onMediaClick) },
         contentAlignment = Alignment.Center,
     ) {
         if (message.mediaPath != null) {
@@ -456,8 +697,91 @@ private fun MediaView(message: MessageItem) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChatInputBar(onSend: (String) -> Unit) {
+private fun MessageActions(
+    message: MessageItem,
+    onDismiss: () -> Unit,
+    onReply: () -> Unit,
+    onCopy: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val clipboard = LocalClipboardManager.current
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            ActionRow(Icons.Filled.Reply, "Reply", onReply)
+            if (message.text.isNotBlank()) {
+                ActionRow(Icons.Filled.ContentCopy, "Copy") {
+                    clipboard.setText(AnnotatedString(message.text))
+                    onCopy()
+                }
+            }
+            if (message.isOutgoing && message.media == MessageMedia.NONE && message.text.isNotBlank()) {
+                ActionRow(Icons.Filled.Edit, "Edit", onEdit)
+            }
+            ActionRow(Icons.Filled.Delete, "Delete", onDelete)
+        }
+    }
+}
+
+@Composable
+private fun ActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(18.dp))
+        Text(text = label, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+private fun EditDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var text by remember { mutableStateOf(initial) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit message") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                maxLines = 6,
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (text.isNotBlank()) onSave(text.trim()) },
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun ChatInputBar(onSend: (String) -> Unit, onTyping: () -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
 
     Row(
@@ -468,7 +792,10 @@ private fun ChatInputBar(onSend: (String) -> Unit) {
     ) {
         OutlinedTextField(
             value = text,
-            onValueChange = { text = it },
+            onValueChange = {
+                text = it
+                onTyping()
+            },
             placeholder = { Text("Message") },
             shape = RoundedCornerShape(24.dp),
             maxLines = 5,
@@ -495,7 +822,7 @@ private fun ChatInputBar(onSend: (String) -> Unit) {
 
 // stable color per sender name
 @Composable
-private fun senderColor(name: String): androidx.compose.ui.graphics.Color {
+private fun senderColor(name: String): Color {
     val palette = listOf(
         MaterialTheme.colorScheme.primary,
         MaterialTheme.colorScheme.tertiary,

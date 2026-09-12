@@ -229,6 +229,11 @@ fun PrismGramRoot(
                                     onBack = goBack,
                                     onLoadMore = { chatViewModel.loadMore() },
                                     onSend = { chatViewModel.send(it) },
+                                    onSetReply = { id, text -> chatViewModel.setReply(id, text) },
+                                    onClearReply = { chatViewModel.clearReply() },
+                                    onEdit = { id, text -> chatViewModel.editMessage(id, text) },
+                                    onDelete = { id, revoke -> chatViewModel.deleteMessage(id, revoke) },
+                                    onTyping = { chatViewModel.notifyTyping() },
                                 )
                             }
                         }

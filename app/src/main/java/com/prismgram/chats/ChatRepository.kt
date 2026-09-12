@@ -4,7 +4,9 @@ import android.util.Log
 import com.prismgram.tdlib.TdClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +23,9 @@ sealed interface ChatUiState {
         val isSavedMessages: Boolean,
         val canSend: Boolean,
         val pinnedText: String?,
+        val typing: Boolean,
+        val replyToId: Long?,
+        val replyToText: String?,
         val messages: List<MessageItem>,
         val canLoadMore: Boolean,
     ) : ChatUiState
@@ -44,6 +49,11 @@ class ChatRepository(private val td: TdClient) {
     private var canSend = true
     private var pinnedText: String? = null
     private var pinnedMessageId = 0L
+    private var replyToId: Long? = null
+    private var replyToText: String? = null
+    private var typing = false
+    private var typingResetJob: Job? = null
+    private var lastTypingSentAt = 0L
 
     private var selfUserId = 0L
     private var atEnd = false
@@ -93,6 +103,11 @@ class ChatRepository(private val td: TdClient) {
         mediaPaths.clear()
         mediaFileToMessage.clear()
         itemCache.clear()
+        replyToId = null
+        replyToText = null
+        typing = false
+        typingResetJob?.cancel()
+        lastTypingSentAt = 0L
         _state.value = ChatUiState.Loading
 
         scope.launch {
@@ -112,6 +127,10 @@ class ChatRepository(private val td: TdClient) {
         mediaPaths.clear()
         mediaFileToMessage.clear()
         itemCache.clear()
+        replyToId = null
+        replyToText = null
+        typing = false
+        typingResetJob?.cancel()
         _state.value = ChatUiState.Closed
     }
 
@@ -138,13 +157,16 @@ class ChatRepository(private val td: TdClient) {
     fun send(text: String) {
         val id = chatId
         if (id == 0L || text.isBlank() || !canSend) return
+        val reply = replyToId
+        replyToId = null
+        replyToText = null
         scope.launch {
             runCatching {
                 td.await(
                     TdApi.SendMessage(
                         id,
                         null,
-                        null,
+                        reply?.let { TdApi.InputMessageReplyToMessage(it, null, 0, null) },
                         null,
                         null,
                         TdApi.InputMessageText(
@@ -162,6 +184,69 @@ class ChatRepository(private val td: TdClient) {
                 Log.e(TAG, "send failed", it)
             }
         }
+    }
+
+    fun setReply(messageId: Long, text: String) {
+        replyToId = messageId
+        replyToText = text.take(90)
+        emit()
+    }
+
+    fun clearReply() {
+        if (replyToId == null) return
+        replyToId = null
+        replyToText = null
+        emit()
+    }
+
+    fun editMessage(messageId: Long, newText: String) {
+        val id = chatId
+        if (id == 0L || newText.isBlank()) return
+        scope.launch {
+            runCatching {
+                td.await(
+                    TdApi.EditMessageText(
+                        id,
+                        messageId,
+                        null,
+                        TdApi.InputMessageText(TdApi.FormattedText(newText, emptyArray()), null, false),
+                    ),
+                )
+            }.onFailure { Log.e(TAG, "edit failed", it) }
+        }
+    }
+
+    fun deleteMessage(messageId: Long, revoke: Boolean) {
+        val id = chatId
+        if (id == 0L) return
+        scope.launch {
+            runCatching { td.await(TdApi.DeleteMessages(id, longArrayOf(messageId), revoke)) }
+                .onFailure { Log.e(TAG, "delete failed", it) }
+        }
+    }
+
+    // tells the other side we're typing, throttled so it doesnt spam
+    fun notifyTyping() {
+        val id = chatId
+        if (id == 0L || !canSend) return
+        val now = System.currentTimeMillis()
+        if (now - lastTypingSentAt < 3000L) return
+        lastTypingSentAt = now
+        td.send(TdApi.SendChatAction(id, null, null, TdApi.ChatActionTyping()))
+    }
+
+    private fun setTyping(value: Boolean) {
+        if (typing == value) return
+        typing = value
+        typingResetJob?.cancel()
+        if (value) {
+            typingResetJob = scope.launch {
+                delay(6000)
+                typing = false
+                emit()
+            }
+        }
+        emit()
     }
 
     private suspend fun loadChatMeta() {
@@ -296,6 +381,36 @@ class ChatRepository(private val td: TdClient) {
                 }
             }
 
+            is TdApi.UpdateChatAction -> {
+                if (update.chatId != chatId) return
+                val senderId = (update.senderId as? TdApi.MessageSenderUser)?.userId ?: 0L
+                if (senderId == selfUserId) return
+                when (update.action) {
+                    is TdApi.ChatActionTyping,
+                    is TdApi.ChatActionRecordingVoiceNote,
+                    is TdApi.ChatActionRecordingVideoNote,
+                    is TdApi.ChatActionUploadingPhoto,
+                    is TdApi.ChatActionUploadingVideo,
+                    is TdApi.ChatActionUploadingDocument,
+                    is TdApi.ChatActionChoosingSticker,
+                    -> setTyping(true)
+
+                    is TdApi.ChatActionCancel -> setTyping(false)
+
+                    else -> Unit
+                }
+            }
+
+            is TdApi.UpdateMessageEdited -> {
+                if (update.chatId != chatId) return
+                synchronized(messages) {
+                    messages[update.messageId]?.let { current ->
+                        current.editDate = update.editDate
+                    }
+                }
+                emit()
+            }
+
             is TdApi.UpdateUser -> {
                 val user = update.user
                 val name = listOf(user.firstName, user.lastName)
@@ -387,6 +502,7 @@ class ChatRepository(private val td: TdClient) {
 
     private fun emit() {
         val sorted = synchronized(messages) { messages.values.sortedByDescending { it.id } }
+        val byId = sorted.associateBy { it.id }
 
         ensureMedia(sorted)
         requestMissingNames(sorted)
@@ -395,6 +511,27 @@ class ChatRepository(private val td: TdClient) {
         for (message in sorted) {
             val content = message.content
             val service = serviceText(content)
+
+            // reply preview, if it points at a message we still have loaded
+            val reply = message.replyTo as? TdApi.MessageReplyToMessage
+            val replied = reply?.let { byId[it.messageId] }
+            val replyName = when {
+                reply == null -> null
+                replied == null -> null
+                replied.isOutgoing -> "You"
+                else -> {
+                    val sender = replied.senderId
+                    when (sender) {
+                        is TdApi.MessageSenderUser -> userNames[sender.userId] ?: title
+                        is TdApi.MessageSenderChat -> chatNames[sender.chatId] ?: title
+                        else -> title
+                    }
+                }
+            }
+            val replyText = reply?.let {
+                replied?.let { m -> messageBody(m.content) } ?: "Message"
+            }
+
             val fresh = MessageItem(
                 id = message.id,
                 isOutgoing = message.isOutgoing,
@@ -405,6 +542,9 @@ class ChatRepository(private val td: TdClient) {
                 mediaPath = mediaPaths[message.id],
                 durationLabel = mediaDuration(content)?.let { formatDuration(it) },
                 showEmoji = (content as? TdApi.MessageSticker)?.sticker?.emoji?.takeIf { mediaFile(content) == null },
+                replyToName = replyName,
+                replyToText = replyText,
+                edited = message.editDate > 0,
                 timeLabel = formatMessageTime(message.date.toLong()),
                 dateLabel = null,
                 sending = synchronized(sendingIds) { sendingIds.contains(message.id) },
@@ -417,9 +557,6 @@ class ChatRepository(private val td: TdClient) {
 
         // day separators: mark the earliest message of each day
         for (i in built.indices) {
-            if (built[i].service && built[i].dateLabel == null) {
-                // still fine, separator logic below applies to all
-            }
             val day = dayOf(sorted[i].date.toLong())
             val older = if (i + 1 < sorted.size) dayOf(sorted[i + 1].date.toLong()) else null
             if (older == null || day != older) {
@@ -446,6 +583,9 @@ class ChatRepository(private val td: TdClient) {
             isSavedMessages = isSavedMessages,
             canSend = canSend,
             pinnedText = pinnedText,
+            typing = typing,
+            replyToId = replyToId,
+            replyToText = replyToText,
             messages = items,
             canLoadMore = !atEnd,
         )

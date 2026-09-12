@@ -23,6 +23,16 @@ class ChatViewModel(private val repository: ChatRepository) : ViewModel() {
 
     fun send(text: String) = repository.send(text)
 
+    fun setReply(messageId: Long, text: String) = repository.setReply(messageId, text)
+
+    fun clearReply() = repository.clearReply()
+
+    fun editMessage(messageId: Long, text: String) = repository.editMessage(messageId, text)
+
+    fun deleteMessage(messageId: Long, revoke: Boolean) = repository.deleteMessage(messageId, revoke)
+
+    fun notifyTyping() = repository.notifyTyping()
+
     companion object {
         fun factory(repository: ChatRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
