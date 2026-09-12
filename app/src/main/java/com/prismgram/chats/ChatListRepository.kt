@@ -7,10 +7,13 @@ import com.prismgram.tdlib.TdException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
@@ -25,9 +28,22 @@ class ChatListRepository(
     private val _state = MutableStateFlow<ChatListUiState>(ChatListUiState.Loading)
     val state: StateFlow<ChatListUiState> = _state.asStateFlow()
 
+    private val _folders = MutableStateFlow<List<FolderTab>>(emptyList())
+    val folders: StateFlow<List<FolderTab>> = _folders.asStateFlow()
+
+    private val _selectedFolderId = MutableStateFlow(0)
+    val selectedFolderId: StateFlow<Int> = _selectedFolderId.asStateFlow()
+
     private val chats = ConcurrentHashMap<Long, TdApi.Chat>()
     private val photoPaths = ConcurrentHashMap<Long, String>()
-    private val downloadingPhotos = HashSet<Int>()
+
+    // file id -> chat id, only for downloads we started ourselves
+    private val photoFileChats = ConcurrentHashMap<Int, Long>()
+    private val requestedFolderLoads = HashSet<Int>()
+
+    // tdlib loves to dump hundreds of updates in a row, without this the list
+    // would rebuild + resort itself a few hundred times on startup
+    private val rebuildRequests = Channel<Unit>(Channel.CONFLATED)
 
     private var started = false
     private var loaded = false
@@ -49,12 +65,23 @@ class ChatListRepository(
                             loaded = false
                             chats.clear()
                             photoPaths.clear()
-                            downloadingPhotos.clear()
+                            photoFileChats.clear()
+                            synchronized(requestedFolderLoads) { requestedFolderLoads.clear() }
+                            _folders.value = emptyList()
+                            _selectedFolderId.value = 0
                             _state.value = ChatListUiState.Loading
                         }
                     }
                     else -> Unit
                 }
+            }
+        }
+
+        // bursts collapse into one rebuild
+        scope.launch {
+            rebuildRequests.consumeAsFlow().collectLatest {
+                delay(60)
+                rebuild()
             }
         }
     }
@@ -70,17 +97,22 @@ class ChatListRepository(
         }
     }
 
+    fun selectFolder(folderId: Int) {
+        if (_selectedFolderId.value == folderId) return
+        _selectedFolderId.value = folderId
+        requestRebuild()
+    }
+
+    private fun requestRebuild() {
+        rebuildRequests.trySend(Unit)
+    }
+
     private suspend fun initialLoad() {
-        // loadChats 404s with "Chat list is empty" when everything is loaded already, thats fine
-        runCatching { td.await(TdApi.LoadChats(TdApi.ChatListMain(), 100)) }
-            .onFailure { e ->
-                val msg = (e as? TdException)?.error?.message ?: ""
-                if (msg != "Chat list is empty") Log.w(TAG, "loadChats: $msg")
-            }
+        loadList(TdApi.ChatListMain())
 
         // chats arrive through updateNewChat, this catches any we somehow missed
-        val loaded = runCatching { td.await(TdApi.GetChats(TdApi.ChatListMain(), 200)) }.getOrNull()
-        loaded?.chatIds?.forEach { chatId ->
+        val result = runCatching { td.await(TdApi.GetChats(TdApi.ChatListMain(), 200)) }.getOrNull()
+        result?.chatIds?.forEach { chatId ->
             if (!chats.containsKey(chatId)) {
                 runCatching { td.await(TdApi.GetChat(chatId)) }.getOrNull()?.let { chat ->
                     chats[chat.id] = chat
@@ -88,15 +120,23 @@ class ChatListRepository(
             }
         }
 
-        ensurePhotos()
-        rebuild()
+        requestRebuild()
+    }
+
+    // loadChats 404s with "Chat list is empty" when everything is loaded already, thats fine
+    private suspend fun loadList(list: TdApi.ChatList) {
+        runCatching { td.await(TdApi.LoadChats(list, 100)) }
+            .onFailure { e ->
+                val msg = (e as? TdException)?.error?.message ?: ""
+                if (msg != "Chat list is empty") Log.w(TAG, "loadChats: $msg")
+            }
     }
 
     private fun handleUpdate(update: TdApi.Object) {
         when (update) {
             is TdApi.UpdateNewChat -> {
                 chats[update.chat.id] = update.chat
-                rebuild()
+                requestRebuild()
             }
 
             is TdApi.UpdateChatLastMessage -> {
@@ -104,7 +144,7 @@ class ChatListRepository(
                     chat.lastMessage = update.lastMessage
                     chat.positions = update.positions
                 }
-                rebuild()
+                requestRebuild()
             }
 
             is TdApi.UpdateChatPosition -> {
@@ -115,36 +155,40 @@ class ChatListRepository(
                     }
                     chat.positions = (others + position).toTypedArray()
                 }
-                rebuild()
+                requestRebuild()
             }
 
             is TdApi.UpdateChatReadInbox -> {
                 chats[update.chatId]?.unreadCount = update.unreadCount
-                rebuild()
+                requestRebuild()
             }
 
             is TdApi.UpdateChatNotificationSettings -> {
                 chats[update.chatId]?.notificationSettings = update.notificationSettings
-                rebuild()
+                requestRebuild()
             }
 
             is TdApi.UpdateChatTitle -> {
                 chats[update.chatId]?.title = update.title
-                rebuild()
+                requestRebuild()
             }
 
             is TdApi.UpdateChatPhoto -> {
                 chats[update.chatId]?.photo = update.photo
-                rebuild()
+                requestRebuild()
+            }
+
+            is TdApi.UpdateChatFolders -> {
+                applyFolders(update.chatFolders, update.mainChatListPosition)
             }
 
             is TdApi.UpdateFile -> {
                 val file = update.file
+                val chatId = photoFileChats[file.id] ?: return
                 if (file.local.isDownloadingCompleted && file.local.path.isNotBlank()) {
-                    val chat = chats.values.firstOrNull { it.photo?.small?.id == file.id }
-                    if (chat != null && photoPaths[chat.id] != file.local.path) {
-                        photoPaths[chat.id] = file.local.path
-                        rebuild()
+                    if (photoPaths[chatId] != file.local.path) {
+                        photoPaths[chatId] = file.local.path
+                        requestRebuild()
                     }
                 }
             }
@@ -153,11 +197,49 @@ class ChatListRepository(
         }
     }
 
+    private fun applyFolders(infos: Array<TdApi.ChatFolderInfo>?, mainChatListPosition: Int) {
+        val folderTabs = infos.orEmpty().map { info ->
+            FolderTab(
+                folderId = info.id,
+                title = info.name.text.text.orEmpty().ifBlank { "Folder" },
+                icon = info.icon?.name?.takeIf { it.isNotBlank() },
+            )
+        }
+        val main = FolderTab(0, "All", null)
+
+        // main list sits wherever the user put it among the folders
+        val position = mainChatListPosition.coerceIn(0, folderTabs.size)
+        _folders.value = folderTabs.subList(0, position) + main + folderTabs.subList(position, folderTabs.size)
+
+        // folder chats need a separate loadChats each
+        scope.launch {
+            for (tab in folderTabs) {
+                val shouldLoad = synchronized(requestedFolderLoads) {
+                    requestedFolderLoads.add(tab.folderId)
+                }
+                if (shouldLoad) {
+                    loadList(TdApi.ChatListFolder(tab.folderId))
+                }
+            }
+            requestRebuild()
+        }
+    }
+
     private fun rebuild() {
+        ensurePhotos()
+
+        val selected = _selectedFolderId.value
         val items = chats.values.mapNotNull { chat ->
-            val position = chat.positions.firstOrNull { it.list is TdApi.ChatListMain }
+            val position = chat.positions.firstOrNull { pos ->
+                if (selected == 0) {
+                    pos.list is TdApi.ChatListMain
+                } else {
+                    (pos.list as? TdApi.ChatListFolder)?.chatFolderId == selected
+                }
+            } ?: return@mapNotNull null
+
             // order 0 means the chat left the list
-            if (position == null || position.order == 0L) return@mapNotNull null
+            if (position.order == 0L) return@mapNotNull null
 
             ChatListItem(
                 id = chat.id,
@@ -177,7 +259,6 @@ class ChatListRepository(
         )
 
         _state.value = if (items.isEmpty()) ChatListUiState.Empty else ChatListUiState.Ready(items)
-        ensurePhotos()
     }
 
     private fun ensurePhotos() {
@@ -190,11 +271,10 @@ class ChatListRepository(
                 continue
             }
 
-            synchronized(downloadingPhotos) {
-                if (downloadingPhotos.add(file.id)) {
-                    // just fire it off, updateFile tells us when its done
-                    td.send(TdApi.DownloadFile(file.id, 4, 0L, 0L, false))
-                }
+            // putIfAbsent doubles as "already asked for this one"
+            if (photoFileChats.putIfAbsent(file.id, chat.id) == null) {
+                // just fire it off, updateFile tells us when its done
+                td.send(TdApi.DownloadFile(file.id, 4, 0L, 0L, false))
             }
         }
     }

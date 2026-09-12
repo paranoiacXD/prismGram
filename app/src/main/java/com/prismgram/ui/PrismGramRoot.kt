@@ -43,6 +43,8 @@ fun PrismGramRoot(
     val busy by authViewModel.busy.collectAsState()
     val accountState by accountViewModel.state.collectAsState()
     val chatListState by chatListViewModel.state.collectAsState()
+    val chatListFolders by chatListViewModel.folders.collectAsState()
+    val chatListSelectedFolder by chatListViewModel.selectedFolderId.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showPhoneEntry by remember { mutableStateOf(false) }
@@ -101,8 +103,11 @@ fun PrismGramRoot(
                         } else {
                             ChatListScreen(
                                 state = chatListState,
+                                folders = chatListFolders,
+                                selectedFolderId = chatListSelectedFolder,
                                 myAvatarPath = (accountState as? AccountUiState.Loaded)?.info?.photoPath,
                                 onOpenProfile = { showProfile = true },
+                                onSelectFolder = { chatListViewModel.selectFolder(it) },
                                 onChatClick = { },
                             )
                         }

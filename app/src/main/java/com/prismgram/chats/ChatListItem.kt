@@ -18,6 +18,13 @@ data class ChatListItem(
     val order: Long,
 )
 
+// folder tab, folderId 0 means the main "All" list
+data class FolderTab(
+    val folderId: Int,
+    val title: String,
+    val icon: String?,
+)
+
 sealed interface ChatListUiState {
     data object Loading : ChatListUiState
     data object Empty : ChatListUiState

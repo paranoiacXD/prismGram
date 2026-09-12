@@ -1,10 +1,15 @@
 package com.prismgram.ui.chats
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,7 +20,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,11 +27,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.prismgram.chats.ChatListItem
 import com.prismgram.chats.ChatListUiState
+import com.prismgram.chats.FolderTab
 import com.prismgram.chats.formatTimestamp
 import java.io.File
 import kotlin.math.abs
@@ -53,63 +62,63 @@ import kotlin.math.abs
 @Composable
 fun ChatListScreen(
     state: ChatListUiState,
+    folders: List<FolderTab>,
+    selectedFolderId: Int,
     myAvatarPath: String?,
     onOpenProfile: () -> Unit,
+    onSelectFolder: (Int) -> Unit,
     onChatClick: (ChatListItem) -> Unit,
 ) {
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
 
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Chats",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.weight(1f),
-            )
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer)
-                    .clickable(onClick = onOpenProfile),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (myAvatarPath != null) {
-                    AsyncImage(
-                        model = File(myAvatarPath),
-                        contentDescription = "My profile",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+        // header swaps between title mode and search mode
+        AnimatedContent(
+            targetState = searchOpen,
+            transitionSpec = {
+                if (targetState) {
+                    (slideInVertically { -it / 2 } + fadeIn()) togetherWith
+                        (slideOutVertically { it / 2 } + fadeOut())
                 } else {
-                    Icon(
-                        imageVector = Icons.Filled.Person,
-                        contentDescription = "My profile",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(24.dp),
-                    )
+                    (slideInVertically { it / 2 } + fadeIn()) togetherWith
+                        (slideOutVertically { -it / 2 } + fadeOut())
                 }
+            },
+            label = "header",
+        ) { open ->
+            if (open) {
+                SearchHeader(
+                    query = query,
+                    onQueryChange = { query = it },
+                    onClose = {
+                        searchOpen = false
+                        query = ""
+                    },
+                )
+            } else {
+                MainHeader(
+                    myAvatarPath = myAvatarPath,
+                    onOpenProfile = onOpenProfile,
+                    onOpenSearch = { searchOpen = true },
+                )
             }
         }
 
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = { Text("Search") },
-            singleLine = true,
-            shape = CircleShape,
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+        // folder tabs, hidden while searching or when there are none
+        AnimatedVisibility(
+            visible = folders.size > 1 && !searchOpen,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            FolderTabs(
+                folders = folders,
+                selectedFolderId = selectedFolderId,
+                onSelectFolder = onSelectFolder,
+            )
+        }
 
         when (state) {
             is ChatListUiState.Loading -> LoadingChats()
@@ -134,6 +143,114 @@ fun ChatListScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MainHeader(
+    myAvatarPath: String?,
+    onOpenProfile: () -> Unit,
+    onOpenSearch: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "PrismGram",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onOpenSearch) {
+            Icon(Icons.Filled.Search, contentDescription = "Search")
+        }
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .clickable(onClick = onOpenProfile),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (myAvatarPath != null) {
+                AsyncImage(
+                    model = File(myAvatarPath),
+                    contentDescription = "My profile",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.Person,
+                    contentDescription = "My profile",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchHeader(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onClose) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search")
+        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            placeholder = { Text("Search") },
+            singleLine = true,
+            shape = CircleShape,
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun FolderTabs(
+    folders: List<FolderTab>,
+    selectedFolderId: Int,
+    onSelectFolder: (Int) -> Unit,
+) {
+    val selectedIndex = folders.indexOfFirst { it.folderId == selectedFolderId }.coerceAtLeast(0)
+
+    ScrollableTabRow(
+        selectedTabIndex = selectedIndex,
+        edgePadding = 16.dp,
+        divider = {},
+    ) {
+        folders.forEach { folder ->
+            Tab(
+                selected = folder.folderId == selectedFolderId,
+                onClick = { onSelectFolder(folder.folderId) },
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (folder.icon != null) {
+                            Text(folder.icon, fontSize = 14.sp)
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = folder.title,
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                    }
+                },
+            )
         }
     }
 }

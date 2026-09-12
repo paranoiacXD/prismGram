@@ -4,15 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.prismgram.chats.ChatListRepository
 import com.prismgram.chats.ChatListUiState
+import com.prismgram.chats.FolderTab
 import kotlinx.coroutines.flow.StateFlow
 
-class ChatListViewModel(repository: ChatListRepository) : ViewModel() {
+class ChatListViewModel(private val repository: ChatListRepository) : ViewModel() {
 
     val state: StateFlow<ChatListUiState> = repository.state
+    val folders: StateFlow<List<FolderTab>> = repository.folders
+    val selectedFolderId: StateFlow<Int> = repository.selectedFolderId
 
     init {
         repository.start()
     }
+
+    fun selectFolder(folderId: Int) = repository.selectFolder(folderId)
 
     companion object {
         fun factory(repository: ChatListRepository): ViewModelProvider.Factory =
