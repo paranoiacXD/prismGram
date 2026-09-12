@@ -234,6 +234,10 @@ fun PrismGramRoot(
                                     onEdit = { id, text -> chatViewModel.editMessage(id, text) },
                                     onDelete = { id, revoke -> chatViewModel.deleteMessage(id, revoke) },
                                     onTyping = { chatViewModel.notifyTyping() },
+                                    onJumpTo = { chatViewModel.jumpToMessage(it) },
+                                    onConsumeJump = { chatViewModel.consumeJump() },
+                                    onOpenPinned = { chatViewModel.openPinned() },
+                                    onClosePinned = { chatViewModel.closePinned() },
                                 )
                             }
                         }

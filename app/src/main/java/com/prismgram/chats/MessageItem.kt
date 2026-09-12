@@ -96,9 +96,12 @@ fun mediaFile(content: TdApi.MessageContent?): TdApi.File? = when (content) {
         (content.photo.sizes.firstOrNull { it.width >= 400 } ?: content.photo.sizes.lastOrNull())?.photo
     is TdApi.MessageVideo -> content.video.thumbnail?.file
     is TdApi.MessageAnimation -> content.animation.thumbnail?.file
-    // animated and video stickers are tgs/webm which coil cant draw, show emoji instead
-    is TdApi.MessageSticker ->
-        if (content.sticker.format.javaClass.simpleName == "StickerFormatWebp") content.sticker.sticker else null
+    // animated and video stickers are tgs/webm. tgs gets drawn by lottie,
+    // webm cant be drawn so we fall back to the emoji
+    is TdApi.MessageSticker -> when (content.sticker.format.javaClass.simpleName) {
+        "StickerFormatWebp", "StickerFormatTgs" -> content.sticker.sticker
+        else -> null
+    }
     else -> null
 }
 

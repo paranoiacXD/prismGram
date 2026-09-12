@@ -33,6 +33,14 @@ class ChatViewModel(private val repository: ChatRepository) : ViewModel() {
 
     fun notifyTyping() = repository.notifyTyping()
 
+    fun jumpToMessage(messageId: Long) = repository.jumpToMessage(messageId)
+
+    fun consumeJump() = repository.consumeJump()
+
+    fun openPinned() = repository.openPinned()
+
+    fun closePinned() = repository.closePinned()
+
     companion object {
         fun factory(repository: ChatRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {

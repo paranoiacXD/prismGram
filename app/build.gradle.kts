@@ -94,6 +94,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("com.airbnb.android:lottie-compose:6.6.6")
     implementation("com.googlecode.libphonenumber:libphonenumber:8.13.44")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 

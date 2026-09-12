@@ -23,9 +23,13 @@ sealed interface ChatUiState {
         val isSavedMessages: Boolean,
         val canSend: Boolean,
         val pinnedText: String?,
+        val pinnedMessageId: Long?,
         val typing: Boolean,
         val replyToId: Long?,
         val replyToText: String?,
+        val jumpTargetId: Long?,
+        val pinnedOpen: Boolean,
+        val pinnedMessages: List<MessageItem>,
         val messages: List<MessageItem>,
         val canLoadMore: Boolean,
     ) : ChatUiState
@@ -54,6 +58,9 @@ class ChatRepository(private val td: TdClient) {
     private var typing = false
     private var typingResetJob: Job? = null
     private var lastTypingSentAt = 0L
+    private var jumpTargetId: Long? = null
+    private var pinnedOpen = false
+    @Volatile private var pinnedMessages: List<MessageItem> = emptyList()
 
     private var selfUserId = 0L
     private var atEnd = false
@@ -108,6 +115,9 @@ class ChatRepository(private val td: TdClient) {
         typing = false
         typingResetJob?.cancel()
         lastTypingSentAt = 0L
+        jumpTargetId = null
+        pinnedOpen = false
+        pinnedMessages = emptyList()
         _state.value = ChatUiState.Loading
 
         scope.launch {
@@ -131,6 +141,9 @@ class ChatRepository(private val td: TdClient) {
         replyToText = null
         typing = false
         typingResetJob?.cancel()
+        jumpTargetId = null
+        pinnedOpen = false
+        pinnedMessages = emptyList()
         _state.value = ChatUiState.Closed
     }
 
@@ -246,6 +259,67 @@ class ChatRepository(private val td: TdClient) {
                 emit()
             }
         }
+        emit()
+    }
+
+    // load the timeline around a specific message (pinned tap)
+    fun jumpToMessage(messageId: Long) {
+        val id = chatId
+        if (id == 0L) return
+        scope.launch {
+            val target = runCatching { td.await(TdApi.GetMessage(id, messageId)) }.getOrNull()
+            val history = runCatching { td.await(TdApi.GetChatHistory(id, messageId, 0, 40, false)) }.getOrNull()
+
+            synchronized(messages) {
+                messages.clear()
+                target?.let { messages[it.id] = it }
+                history?.messages?.forEach { messages[it.id] = it }
+            }
+            atEnd = false
+            jumpTargetId = messageId
+            emit()
+        }
+    }
+
+    fun consumeJump() {
+        if (jumpTargetId == null) return
+        jumpTargetId = null
+        emit()
+    }
+
+    fun openPinned() {
+        if (pinnedOpen) return
+        pinnedOpen = true
+        emit()
+        scope.launch { loadPinnedMessages() }
+    }
+
+    fun closePinned() {
+        if (!pinnedOpen) return
+        pinnedOpen = false
+        emit()
+    }
+
+    private suspend fun loadPinnedMessages() {
+        val id = chatId
+        val result = runCatching {
+            td.await(
+                TdApi.SearchChatMessages(
+                    id,
+                    null,
+                    "",
+                    null,
+                    0L,
+                    0,
+                    50,
+                    TdApi.SearchMessagesFilterPinned(),
+                ),
+            )
+        }.getOrNull() ?: return
+
+        val byId = synchronized(messages) { messages.toMap() }
+        val items = result.messages.map { buildItem(it, byId) }
+        pinnedMessages = items
         emit()
     }
 
@@ -500,6 +574,49 @@ class ChatRepository(private val td: TdClient) {
         }
     }
 
+    private fun buildItem(message: TdApi.Message, byId: Map<Long, TdApi.Message>): MessageItem {
+        val content = message.content
+        val service = serviceText(content)
+
+        val reply = message.replyTo as? TdApi.MessageReplyToMessage
+        val replied = reply?.let { byId[it.messageId] }
+        val replyName = when {
+            reply == null -> null
+            replied == null -> null
+            replied.isOutgoing -> "You"
+            else -> {
+                val sender = replied.senderId
+                when (sender) {
+                    is TdApi.MessageSenderUser -> userNames[sender.userId] ?: title
+                    is TdApi.MessageSenderChat -> chatNames[sender.chatId] ?: title
+                    else -> title
+                }
+            }
+        }
+        val replyText = reply?.let {
+            replied?.let { m -> messageBody(m.content) } ?: "Message"
+        }
+
+        return MessageItem(
+            id = message.id,
+            isOutgoing = message.isOutgoing,
+            senderName = senderLabel(message),
+            text = if (service != null) service else messageBody(content),
+            service = service != null,
+            media = mediaKind(content),
+            mediaPath = mediaPaths[message.id],
+            durationLabel = mediaDuration(content)?.let { formatDuration(it) },
+            showEmoji = (content as? TdApi.MessageSticker)?.sticker?.emoji?.takeIf { mediaFile(content) == null },
+            replyToName = replyName,
+            replyToText = replyText,
+            edited = message.editDate > 0,
+            timeLabel = formatMessageTime(message.date.toLong()),
+            dateLabel = null,
+            sending = synchronized(sendingIds) { sendingIds.contains(message.id) },
+            failed = synchronized(failedIds) { failedIds.contains(message.id) },
+        )
+    }
+
     private fun emit() {
         val sorted = synchronized(messages) { messages.values.sortedByDescending { it.id } }
         val byId = sorted.associateBy { it.id }
@@ -507,53 +624,7 @@ class ChatRepository(private val td: TdClient) {
         ensureMedia(sorted)
         requestMissingNames(sorted)
 
-        val built = ArrayList<MessageItem>(sorted.size)
-        for (message in sorted) {
-            val content = message.content
-            val service = serviceText(content)
-
-            // reply preview, if it points at a message we still have loaded
-            val reply = message.replyTo as? TdApi.MessageReplyToMessage
-            val replied = reply?.let { byId[it.messageId] }
-            val replyName = when {
-                reply == null -> null
-                replied == null -> null
-                replied.isOutgoing -> "You"
-                else -> {
-                    val sender = replied.senderId
-                    when (sender) {
-                        is TdApi.MessageSenderUser -> userNames[sender.userId] ?: title
-                        is TdApi.MessageSenderChat -> chatNames[sender.chatId] ?: title
-                        else -> title
-                    }
-                }
-            }
-            val replyText = reply?.let {
-                replied?.let { m -> messageBody(m.content) } ?: "Message"
-            }
-
-            val fresh = MessageItem(
-                id = message.id,
-                isOutgoing = message.isOutgoing,
-                senderName = senderLabel(message),
-                text = messageBody(content),
-                service = service != null,
-                media = mediaKind(content),
-                mediaPath = mediaPaths[message.id],
-                durationLabel = mediaDuration(content)?.let { formatDuration(it) },
-                showEmoji = (content as? TdApi.MessageSticker)?.sticker?.emoji?.takeIf { mediaFile(content) == null },
-                replyToName = replyName,
-                replyToText = replyText,
-                edited = message.editDate > 0,
-                timeLabel = formatMessageTime(message.date.toLong()),
-                dateLabel = null,
-                sending = synchronized(sendingIds) { sendingIds.contains(message.id) },
-                failed = synchronized(failedIds) { failedIds.contains(message.id) },
-            )
-            built.add(
-                if (service != null) fresh.copy(text = service) else fresh,
-            )
-        }
+        val built = sorted.map { buildItem(it, byId) }.toMutableList()
 
         // day separators: mark the earliest message of each day
         for (i in built.indices) {
@@ -583,9 +654,13 @@ class ChatRepository(private val td: TdClient) {
             isSavedMessages = isSavedMessages,
             canSend = canSend,
             pinnedText = pinnedText,
+            pinnedMessageId = pinnedMessageId.takeIf { it != 0L },
             typing = typing,
             replyToId = replyToId,
             replyToText = replyToText,
+            jumpTargetId = jumpTargetId,
+            pinnedOpen = pinnedOpen,
+            pinnedMessages = pinnedMessages,
             messages = items,
             canLoadMore = !atEnd,
         )

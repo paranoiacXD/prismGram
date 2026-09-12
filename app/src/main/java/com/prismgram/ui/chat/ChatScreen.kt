@@ -4,6 +4,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -48,7 +50,9 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -56,22 +60,35 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.airbnb.lottie.LottieComposition
+import com.airbnb.lottie.LottieCompositionFactory
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieConstants
 import com.prismgram.R
 import com.prismgram.chats.ChatUiState
 import com.prismgram.chats.MessageItem
 import com.prismgram.chats.MessageMedia
 import com.prismgram.ui.common.ErrorPanel
 import com.prismgram.ui.common.LoadingScreen
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.withContext
+import java.io.FileInputStream
+import java.util.zip.GZIPInputStream
 import kotlin.math.abs
 
 @Composable
@@ -85,6 +102,10 @@ fun ChatScreen(
     onEdit: (Long, String) -> Unit,
     onDelete: (Long, Boolean) -> Unit,
     onTyping: () -> Unit,
+    onJumpTo: (Long) -> Unit,
+    onConsumeJump: () -> Unit,
+    onOpenPinned: () -> Unit,
+    onClosePinned: () -> Unit,
 ) {
     val ready = state as? ChatUiState.Ready
 
@@ -101,7 +122,11 @@ fun ChatScreen(
             ChatTopBar(state, onBack)
 
             if (ready?.pinnedText != null) {
-                PinnedBar(ready.pinnedText)
+                PinnedBar(
+                    text = ready.pinnedText,
+                    onClick = { ready.pinnedMessageId?.let(onJumpTo) },
+                    onLongClick = onOpenPinned,
+                )
             }
 
             Box(
@@ -118,6 +143,7 @@ fun ChatScreen(
                         onLoadMore = onLoadMore,
                         onLongPress = { actionMessage = it },
                         onMediaClick = { viewerPath = it },
+                        onConsumeJump = onConsumeJump,
                     )
                 }
             }
@@ -130,40 +156,13 @@ fun ChatScreen(
                 )
             }
 
-            // channels you cant write to get no input bar
             if (ready == null || ready.canSend) {
                 ChatInputBar(onSend = onSend, onTyping = onTyping)
             }
         }
 
-        // fullscreen media viewer
         viewerPath?.let { path ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.95f))
-                    .clickable { viewerPath = null },
-                contentAlignment = Alignment.Center,
-            ) {
-                AsyncImage(
-                    model = path,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                IconButton(
-                    onClick = { viewerPath = null },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(16.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "Close",
-                        tint = Color.White,
-                    )
-                }
-            }
+            MediaViewer(path = path, onClose = { viewerPath = null })
         }
     }
 
@@ -175,9 +174,7 @@ fun ChatScreen(
                 onSetReply(message.id, message.text)
                 actionMessage = null
             },
-            onCopy = {
-                actionMessage = null
-            },
+            onCopy = { actionMessage = null },
             onEdit = {
                 editingMessage = message
                 actionMessage = null
@@ -196,6 +193,17 @@ fun ChatScreen(
             onSave = { newText ->
                 onEdit(message.id, newText)
                 editingMessage = null
+            },
+        )
+    }
+
+    if (ready?.pinnedOpen == true) {
+        PinnedSheet(
+            messages = ready.pinnedMessages,
+            onDismiss = onClosePinned,
+            onPick = { id ->
+                onClosePinned()
+                onJumpTo(id)
             },
         )
     }
@@ -275,12 +283,14 @@ private fun ChatTopBar(state: ChatUiState, onBack: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PinnedBar(text: String) {
+private fun PinnedBar(text: String, onClick: () -> Unit, onLongClick: () -> Unit) {
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -305,8 +315,75 @@ private fun PinnedBar(text: String) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            Text(
+                text = "view all",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PinnedSheet(
+    messages: List<MessageItem>,
+    onDismiss: () -> Unit,
+    onPick: (Long) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            Text(
+                text = "Pinned messages",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            if (messages.isEmpty()) {
+                Text(
+                    text = "Nothing pinned",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(messages, key = { it.id }) { message ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(message.id) }
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_pin),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Column {
+                                if (message.senderName != null) {
+                                    Text(
+                                        text = message.senderName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                                Text(
+                                    text = message.text.ifBlank { "Media" },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -353,13 +430,28 @@ private fun MessageList(
     onLoadMore: () -> Unit,
     onLongPress: (MessageItem) -> Unit,
     onMediaClick: (String) -> Unit,
+    onConsumeJump: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val newestId = state.messages.firstOrNull()?.id
+    var lastNewest by remember { mutableStateOf<Long?>(null) }
 
-    LaunchedEffect(newestId) {
-        if (newestId != null) {
+    // auto scroll to newest, but not while a jump is pending
+    LaunchedEffect(newestId, state.jumpTargetId) {
+        if (state.jumpTargetId != null) return@LaunchedEffect
+        if (newestId != null && (lastNewest == null || newestId > lastNewest!!)) {
             runCatching { listState.animateScrollToItem(0) }
+        }
+        lastNewest = newestId
+    }
+
+    // scroll to whatever we jumped to
+    LaunchedEffect(state.jumpTargetId, state.messages) {
+        val target = state.jumpTargetId ?: return@LaunchedEffect
+        val index = state.messages.indexOfFirst { it.id == target }
+        if (index >= 0) {
+            runCatching { listState.animateScrollToItem(index) }
+            onConsumeJump()
         }
     }
 
@@ -476,25 +568,63 @@ private fun DaySeparator(label: String) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit) {
+    val path = message.mediaPath
+
     Box(
         modifier = Modifier.combinedClickable(
             onClick = { },
             onLongClick = { onLongPress(message) },
         ),
     ) {
-        if (message.mediaPath != null) {
-            AsyncImage(
-                model = message.mediaPath,
+        when {
+            // animated stickers are tgs, lottie draws those
+            path != null && path.endsWith(".tgs") -> LottieSticker(
+                path = path,
+                modifier = Modifier.size(140.dp),
+            )
+
+            path != null -> AsyncImage(
+                model = path,
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.size(140.dp),
             )
-        } else {
-            Text(
+
+            else -> Text(
                 text = message.showEmoji ?: "\uD83D\uDC45",
                 style = MaterialTheme.typography.displaySmall,
                 modifier = Modifier.padding(8.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun LottieSticker(path: String, modifier: Modifier = Modifier) {
+    // tgs files are gzipped lottie json, so they need a gunzip first
+    val composition by produceState<LottieComposition?>(initialValue = null, path) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                FileInputStream(path).use { fileInput ->
+                    val stream = if (path.endsWith(".tgs")) GZIPInputStream(fileInput) else fileInput
+                    LottieCompositionFactory.fromJsonInputStreamSync(stream, path).value
+                }
+            }.getOrNull()
+        }
+    }
+
+    if (composition != null) {
+        LottieAnimation(
+            composition = composition,
+            iterations = LottieConstants.IterateForever,
+            modifier = modifier,
+        )
+    } else {
+        Box(
+            modifier = modifier,
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("…", style = MaterialTheme.typography.titleLarge)
         }
     }
 }
@@ -547,9 +677,16 @@ private fun MessageBubble(
             }
 
             if (message.text.isNotBlank()) {
+                val emojiOnly = message.media == MessageMedia.NONE && isEmojiOnly(message.text)
                 Text(
                     text = message.text,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = if (emojiOnly) {
+                        MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = if (message.text.trim().length <= 2) 44.sp else 30.sp,
+                        )
+                    } else {
+                        MaterialTheme.typography.bodyLarge
+                    },
                     color = if (message.isOutgoing) {
                         MaterialTheme.colorScheme.onPrimaryContainer
                     } else {
@@ -584,14 +721,6 @@ private fun MessageBubble(
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
-                if (message.sending) {
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = "…",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                    )
-                }
                 if (message.failed) {
                     Spacer(Modifier.width(4.dp))
                     Text(
@@ -697,6 +826,66 @@ private fun MediaView(message: MessageItem, onMediaClick: (String) -> Unit) {
     }
 }
 
+// pinch to zoom, double tap to zoom, single tap to close
+@Composable
+private fun MediaViewer(path: String, onClose: () -> Unit) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.96f))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onClose() },
+                    onDoubleTap = {
+                        if (scale > 1f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            scale = 2.5f
+                        }
+                    },
+                )
+            }
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(1f, 6f)
+                    offset = if (scale > 1f) offset + pan else Offset.Zero
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = path,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                },
+        )
+
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "Close",
+                tint = Color.White,
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageActions(
@@ -768,9 +957,7 @@ private fun EditDialog(initial: String, onDismiss: () -> Unit, onSave: (String) 
             )
         },
         confirmButton = {
-            TextButton(
-                onClick = { if (text.isNotBlank()) onSave(text.trim()) },
-            ) {
+            TextButton(onClick = { if (text.isNotBlank()) onSave(text.trim()) }) {
                 Text("Save")
             }
         },
@@ -818,6 +1005,13 @@ private fun ChatInputBar(onSend: (String) -> Unit, onTyping: () -> Unit) {
             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
         }
     }
+}
+
+// emoji-only messages get drawn big, like telegram does
+private fun isEmojiOnly(text: String): Boolean {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty() || trimmed.length > 8) return false
+    return trimmed.none { it.isLetterOrDigit() || it in ".,!?;:\"'()[]{}" }
 }
 
 // stable color per sender name
