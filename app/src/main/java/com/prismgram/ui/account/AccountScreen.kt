@@ -16,9 +16,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -37,23 +39,32 @@ import com.prismgram.ui.common.LoadingScreen
 import java.io.File
 
 @Composable
-fun AccountScreen(state: AccountUiState, onSignOut: () -> Unit) {
+fun AccountScreen(state: AccountUiState, onBack: (() -> Unit)? = null, onSignOut: () -> Unit) {
     when (state) {
         is AccountUiState.Loading -> LoadingScreen("Loading your account…")
         is AccountUiState.Error -> ErrorPanel(state.message)
-        is AccountUiState.Loaded -> AccountContent(state.info, onSignOut)
+        is AccountUiState.Loaded -> AccountContent(state.info, onBack, onSignOut)
     }
 }
 
 @Composable
-private fun AccountContent(info: AccountInfo, onSignOut: () -> Unit) {
+private fun AccountContent(info: AccountInfo, onBack: (() -> Unit)?, onSignOut: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .systemBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 20.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
+        if (onBack != null) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                )
+            }
+        }
+
         Text(
             text = "Account",
             style = MaterialTheme.typography.headlineMedium,

@@ -16,11 +16,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.prismgram.auth.AuthState
 import com.prismgram.ui.account.AccountScreen
+import com.prismgram.ui.account.AccountUiState
 import com.prismgram.ui.account.AccountViewModel
 import com.prismgram.ui.auth.AuthViewModel
 import com.prismgram.ui.auth.CodeScreen
 import com.prismgram.ui.auth.PasswordScreen
 import com.prismgram.ui.auth.PhoneScreen
+import com.prismgram.ui.chats.ChatListScreen
+import com.prismgram.ui.chats.ChatListViewModel
 import com.prismgram.ui.common.ErrorPanel
 import com.prismgram.ui.common.LoadingScreen
 
@@ -28,21 +31,28 @@ import com.prismgram.ui.common.LoadingScreen
 fun PrismGramRoot(
     authViewModel: AuthViewModel,
     accountViewModel: AccountViewModel,
+    chatListViewModel: ChatListViewModel,
 ) {
     val authState by authViewModel.state.collectAsState()
     val busy by authViewModel.busy.collectAsState()
     val accountState by accountViewModel.state.collectAsState()
+    val chatListState by chatListViewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showPhoneEntry by remember { mutableStateOf(false) }
+    var showProfile by remember { mutableStateOf(false) }
 
     LaunchedEffect(authState) {
         when (authState) {
             is AuthState.Ready -> {
                 showPhoneEntry = false
+                showProfile = false
                 accountViewModel.load()
             }
-            is AuthState.WaitPhoneNumber -> showPhoneEntry = false
+            is AuthState.WaitPhoneNumber -> {
+                showPhoneEntry = false
+                showProfile = false
+            }
             else -> Unit
         }
     }
@@ -63,8 +73,19 @@ fun PrismGramRoot(
         ) {
             val state = authState
             when {
+                state is AuthState.Ready && showProfile ->
+                    AccountScreen(
+                        state = accountState,
+                        onBack = { showProfile = false },
+                    ) { accountViewModel.signOut() }
+
                 state is AuthState.Ready ->
-                    AccountScreen(accountState) { accountViewModel.signOut() }
+                    ChatListScreen(
+                        state = chatListState,
+                        myAvatarPath = (accountState as? AccountUiState.Loaded)?.info?.photoPath,
+                        onOpenProfile = { showProfile = true },
+                        onChatClick = { },
+                    )
 
                 showPhoneEntry ->
                     PhoneScreen(busy) {

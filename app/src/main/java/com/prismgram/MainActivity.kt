@@ -12,6 +12,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.prismgram.ui.PrismGramRoot
 import com.prismgram.ui.account.AccountViewModel
 import com.prismgram.ui.auth.AuthViewModel
+import com.prismgram.ui.chats.ChatListViewModel
 import com.prismgram.ui.theme.PrismGramTheme
 
 class MainActivity : ComponentActivity() {
@@ -31,8 +32,10 @@ class MainActivity : ComponentActivity() {
                         viewModel(factory = AuthViewModel.factory(container.authRepository))
                     val accountViewModel: AccountViewModel =
                         viewModel(factory = AccountViewModel.factory(container.accountRepository))
+                    val chatListViewModel: ChatListViewModel =
+                        viewModel(factory = ChatListViewModel.factory(container.chatListRepository))
 
-                    PrismGramRoot(authViewModel, accountViewModel)
+                    PrismGramRoot(authViewModel, accountViewModel, chatListViewModel)
                 }
             }
         }
