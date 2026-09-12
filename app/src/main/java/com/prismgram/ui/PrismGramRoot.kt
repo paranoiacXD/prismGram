@@ -108,6 +108,7 @@ fun PrismGramRoot(
                                 myAvatarPath = (accountState as? AccountUiState.Loaded)?.info?.photoPath,
                                 onOpenProfile = { showProfile = true },
                                 onSelectFolder = { chatListViewModel.selectFolder(it) },
+                                onVisibleChatsChanged = { chatListViewModel.requestPhotos(it) },
                                 onChatClick = { },
                             )
                         }

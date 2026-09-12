@@ -108,6 +108,32 @@ class ChatListRepository(
         requestRebuild()
     }
 
+    // the screen tells us which chats are on screen, we only download those.
+    // asking for every avatar at once at startup flooded the network and
+    // made the whole sync phase stutter
+    fun requestPhotos(chatIds: List<Long>) {
+        if (chatIds.isEmpty()) return
+        var changed = false
+        for (chatId in chatIds) {
+            val chat = chats[chatId] ?: continue
+            if (photoPaths.containsKey(chatId)) continue
+            val file = chat.photo?.small ?: continue
+
+            if (file.local.isDownloadingCompleted && file.local.path.isNotBlank()) {
+                photoPaths[chatId] = file.local.path
+                changed = true
+                continue
+            }
+
+            // putIfAbsent doubles as "already asked for this one"
+            if (photoFileChats.putIfAbsent(file.id, chatId) == null) {
+                // just fire it off, updateFile tells us when its done
+                td.send(TdApi.DownloadFile(file.id, 4, 0L, 0L, false))
+            }
+        }
+        if (changed) requestRebuild()
+    }
+
     private fun requestRebuild() {
         rebuildRequests.trySend(Unit)
     }
@@ -231,8 +257,6 @@ class ChatListRepository(
     }
 
     private fun rebuild() {
-        ensurePhotos()
-
         val selected = _selectedFolderId.value
         val items = chats.values.mapNotNull { chat ->
             val position = chat.positions.firstOrNull { pos ->
@@ -274,24 +298,6 @@ class ChatListRepository(
         // the ui about it
         if (_state.value != newState) {
             _state.value = newState
-        }
-    }
-
-    private fun ensurePhotos() {
-        for (chat in chats.values) {
-            val file = chat.photo?.small ?: continue
-            if (photoPaths.containsKey(chat.id)) continue
-
-            if (file.local.isDownloadingCompleted && file.local.path.isNotBlank()) {
-                photoPaths[chat.id] = file.local.path
-                continue
-            }
-
-            // putIfAbsent doubles as "already asked for this one"
-            if (photoFileChats.putIfAbsent(file.id, chat.id) == null) {
-                // just fire it off, updateFile tells us when its done
-                td.send(TdApi.DownloadFile(file.id, 4, 0L, 0L, false))
-            }
         }
     }
 

@@ -16,6 +16,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,17 +29,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +52,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +69,8 @@ import com.prismgram.chats.ChatListItem
 import com.prismgram.chats.ChatListUiState
 import com.prismgram.chats.FolderTab
 import com.prismgram.chats.formatTimestamp
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import java.io.File
 import kotlin.math.abs
 
@@ -74,10 +82,12 @@ fun ChatListScreen(
     myAvatarPath: String?,
     onOpenProfile: () -> Unit,
     onSelectFolder: (Int) -> Unit,
+    onVisibleChatsChanged: (List<Long>) -> Unit,
     onChatClick: (ChatListItem) -> Unit,
 ) {
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
+    val listState = rememberLazyListState()
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -95,13 +105,13 @@ fun ChatListScreen(
             onOpenProfile = onOpenProfile,
         )
 
-        // folder tabs, hidden while searching or when there are none
+        // folder chips, hidden while searching or when there are none
         AnimatedVisibility(
             visible = folders.size > 1 && !searchOpen,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
         ) {
-            FolderTabs(
+            FolderChips(
                 folders = folders,
                 selectedFolderId = selectedFolderId,
                 onSelectFolder = onSelectFolder,
@@ -117,14 +127,44 @@ fun ChatListScreen(
                 } else {
                     state.chats.filter { it.title.contains(query, ignoreCase = true) }
                 }
+
+                // only avatars for whats on screen (+ some buffer) get downloaded
+                LaunchedEffect(listState, filtered) {
+                    snapshotFlow { listState.layoutInfo.visibleItemsInfo }
+                        .map { infos -> infos.map { it.index } }
+                        .distinctUntilChanged()
+                        .collect { visible ->
+                            if (visible.isEmpty()) return@collect
+                            val first = (visible.first() - 12).coerceAtLeast(0)
+                            val last = (visible.last() + 12).coerceAtMost(filtered.lastIndex)
+                            if (first <= last) {
+                                onVisibleChatsChanged(
+                                    filtered.subList(first, last + 1).map { it.id },
+                                )
+                            }
+                        }
+                }
+
                 if (filtered.isEmpty()) {
                     NoChats("Nothing found for \"$query\"")
                 } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(filtered, key = { it.id }) { chat ->
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(
+                            items = filtered,
+                            key = { it.id },
+                            contentType = { "chat" },
+                        ) { chat ->
                             ChatRow(
                                 chat = chat,
-                                modifier = Modifier.animateItem(),
+                                // fade specs off, rows fading in while scrolling is jank.
+                                // placement spring stays so reorders still glide
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = null,
+                                    fadeOutSpec = null,
+                                ),
                                 onClick = { onChatClick(chat) },
                             )
                         }
@@ -247,35 +287,50 @@ private fun AvatarButton(myAvatarPath: String?, onClick: () -> Unit) {
 }
 
 @Composable
-private fun FolderTabs(
+private fun FolderChips(
     folders: List<FolderTab>,
     selectedFolderId: Int,
     onSelectFolder: (Int) -> Unit,
 ) {
-    val selectedIndex = folders.indexOfFirst { it.folderId == selectedFolderId }.coerceAtLeast(0)
-
-    ScrollableTabRow(
-        selectedTabIndex = selectedIndex,
-        edgePadding = 16.dp,
-        divider = {},
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .horizontalScroll(rememberScrollState()),
     ) {
+        Spacer(Modifier.width(16.dp))
+
         folders.forEach { folder ->
-            Tab(
-                selected = folder.folderId == selectedFolderId,
+            val isSelected = folder.folderId == selectedFolderId
+
+            FilterChip(
+                selected = isSelected,
                 onClick = { onSelectFolder(folder.folderId) },
-                text = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (folder.icon != null) {
-                            Text(folder.icon, fontSize = 14.sp)
-                            Spacer(Modifier.width(4.dp))
-                        }
-                        Text(
-                            text = folder.title,
-                            style = MaterialTheme.typography.titleSmall,
+                label = {
+                    Text(
+                        text = folder.title,
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                },
+                leadingIcon = {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(FilterChipDefaults.IconSize),
                         )
+                    } else if (folder.icon != null) {
+                        Text(folder.icon, fontSize = 14.sp)
                     }
                 },
+                shape = RoundedCornerShape(16.dp),
+                border = null,
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
             )
+
+            Spacer(Modifier.width(8.dp))
         }
     }
 }
@@ -388,7 +443,7 @@ private fun UnreadBadge(count: Int, muted: Boolean) {
                 (scaleOut(targetScale = 0.6f) + fadeOut())
         },
         label = "unread",
-        ) { value ->
+    ) { value ->
         Box(
             modifier = Modifier
                 .clip(CircleShape)

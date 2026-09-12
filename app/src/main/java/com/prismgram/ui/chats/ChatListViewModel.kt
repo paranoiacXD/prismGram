@@ -19,6 +19,8 @@ class ChatListViewModel(private val repository: ChatListRepository) : ViewModel(
 
     fun selectFolder(folderId: Int) = repository.selectFolder(folderId)
 
+    fun requestPhotos(chatIds: List<Long>) = repository.requestPhotos(chatIds)
+
     companion object {
         fun factory(repository: ChatListRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
