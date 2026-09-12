@@ -239,13 +239,27 @@ class ChatRepository(private val td: TdClient) {
     }
 
     // tells the other side we're typing, throttled so it doesnt spam
-    fun notifyTyping() {
-        val id = chatId
+    fun notifyTyping() {        val id = chatId
         if (id == 0L || !canSend) return
         val now = System.currentTimeMillis()
         if (now - lastTypingSentAt < 3000L) return
         lastTypingSentAt = now
         td.send(TdApi.SendChatAction(id, null, null, TdApi.ChatActionTyping()))
+    }
+
+    fun toggleReaction(messageId: Long, emoji: String, chosen: Boolean) {
+        val id = chatId
+        if (id == 0L) return
+        scope.launch {
+            runCatching {
+                val type = TdApi.ReactionTypeEmoji(emoji)
+                if (chosen) {
+                    td.await(TdApi.RemoveMessageReaction(id, messageId, type))
+                } else {
+                    td.await(TdApi.AddMessageReaction(id, messageId, type, false, false))
+                }
+            }.onFailure { Log.e(TAG, "reaction failed", it) }
+        }
     }
 
     private fun setTyping(value: Boolean) {
@@ -451,6 +465,7 @@ class ChatRepository(private val td: TdClient) {
                 val messageId = mediaFileToMessage[file.id]
                 if (messageId != null && file.local.isDownloadingCompleted && file.local.path.isNotBlank()) {
                     mediaPaths[messageId] = file.local.path
+                    Log.d(TAG, "media downloaded msg=$messageId path=${file.local.path}")
                     emit()
                 }
             }
@@ -480,6 +495,16 @@ class ChatRepository(private val td: TdClient) {
                 synchronized(messages) {
                     messages[update.messageId]?.let { current ->
                         current.editDate = update.editDate
+                    }
+                }
+                emit()
+            }
+
+            is TdApi.UpdateMessageInteractionInfo -> {
+                if (update.chatId != chatId) return
+                synchronized(messages) {
+                    messages[update.messageId]?.let { current ->
+                        current.interactionInfo = update.interactionInfo
                     }
                 }
                 emit()
@@ -568,6 +593,14 @@ class ChatRepository(private val td: TdClient) {
                 mediaFileToMessage[file.id] = message.id
                 td.send(TdApi.DownloadFile(file.id, 3, 0L, 0L, false))
             }
+            val sticker = message.content as? TdApi.MessageSticker
+            if (sticker != null) {
+                Log.d(
+                    TAG,
+                    "sticker msg=${message.id} format=${sticker.sticker.format::class.java.simpleName} " +
+                        "fileId=${file.id} started=$shouldStart completed=${file.local.isDownloadingCompleted}",
+                )
+            }
         }
         if (changed) {
             // paths were already picked up by whoever called us next emit round
@@ -597,6 +630,15 @@ class ChatRepository(private val td: TdClient) {
             replied?.let { m -> messageBody(m.content) } ?: "Message"
         }
 
+        val reactions = message.interactionInfo?.reactions?.reactions
+            ?.mapNotNull { reaction ->
+                (reaction.type as? TdApi.ReactionTypeEmoji)?.let {
+                    ReactionItem(it.emoji, reaction.totalCount, reaction.isChosen)
+                }
+            }
+            ?.filter { it.count > 0 }
+            .orEmpty()
+
         return MessageItem(
             id = message.id,
             isOutgoing = message.isOutgoing,
@@ -606,10 +648,11 @@ class ChatRepository(private val td: TdClient) {
             media = mediaKind(content),
             mediaPath = mediaPaths[message.id],
             durationLabel = mediaDuration(content)?.let { formatDuration(it) },
-            showEmoji = (content as? TdApi.MessageSticker)?.sticker?.emoji?.takeIf { mediaFile(content) == null },
+            showEmoji = (content as? TdApi.MessageSticker)?.sticker?.emoji,
             replyToName = replyName,
             replyToText = replyText,
             edited = message.editDate > 0,
+            reactions = reactions,
             timeLabel = formatMessageTime(message.date.toLong()),
             dateLabel = null,
             sending = synchronized(sendingIds) { sendingIds.contains(message.id) },

@@ -9,6 +9,8 @@ import java.time.format.DateTimeFormatter
 
 enum class MessageMedia { NONE, PHOTO, VIDEO, STICKER, GIF }
 
+data class ReactionItem(val emoji: String, val count: Int, val chosen: Boolean)
+
 data class MessageItem(
     val id: Long,
     val isOutgoing: Boolean,
@@ -22,6 +24,7 @@ data class MessageItem(
     val replyToName: String?,
     val replyToText: String?,
     val edited: Boolean,
+    val reactions: List<ReactionItem>,
     val timeLabel: String,
     val dateLabel: String?,
     val sending: Boolean,
@@ -64,20 +67,19 @@ fun serviceText(content: TdApi.MessageContent?): String? {
         is TdApi.MessagePinMessage -> "Pinned a message"
         is TdApi.MessageChatSetMessageAutoDeleteTime -> "Auto-delete timer changed"
         is TdApi.MessageChatUpgradeTo -> "Upgraded to supergroup"
+        is TdApi.MessageChatUpgradeFrom -> "Upgraded from group"
         is TdApi.MessageContactRegistered -> "Joined Telegram"
-        else -> {
-            // anything else that smells like a service message, matched by name
-            // so we dont depend on every single class existing
-            val name = content.javaClass.simpleName
-            if (name.startsWith("MessageChat") ||
-                name.startsWith("MessageSupergroup") ||
-                name.startsWith("MessageBasicGroup")
-            ) {
-                "Service message"
-            } else {
-                null
-            }
-        }
+        is TdApi.MessageChatChangePhoto -> "Photo changed"
+        is TdApi.MessageChatDeletePhoto -> "Photo removed"
+        is TdApi.MessageChatOwnerLeft -> "Owner left"
+        is TdApi.MessageChatOwnerChanged -> "Owner changed"
+        is TdApi.MessageChatSetBackground -> "Background changed"
+        is TdApi.MessageChatSetTheme -> "Theme changed"
+        is TdApi.MessageChatBoost -> "Boosted"
+        is TdApi.MessageChatAddedToCommunity -> "Added to community"
+        is TdApi.MessageChatRemovedFromCommunity -> "Removed from community"
+        is TdApi.MessageScreenshotTaken -> "Screenshot taken"
+        else -> null
     }
 }
 
@@ -96,10 +98,11 @@ fun mediaFile(content: TdApi.MessageContent?): TdApi.File? = when (content) {
         (content.photo.sizes.firstOrNull { it.width >= 400 } ?: content.photo.sizes.lastOrNull())?.photo
     is TdApi.MessageVideo -> content.video.thumbnail?.file
     is TdApi.MessageAnimation -> content.animation.thumbnail?.file
-    // animated and video stickers are tgs/webm. tgs gets drawn by lottie,
-    // webm cant be drawn so we fall back to the emoji
-    is TdApi.MessageSticker -> when (content.sticker.format.javaClass.simpleName) {
-        "StickerFormatWebp", "StickerFormatTgs" -> content.sticker.sticker
+    // tgs is drawn by lottie, webp by coil. webm (video stickers) cant be
+    // drawn so those fall back to the emoji.
+    // NOTE: never match on javaClass.simpleName, r8 renames classes in release
+    is TdApi.MessageSticker -> when (content.sticker.format) {
+        is TdApi.StickerFormatWebp, is TdApi.StickerFormatTgs -> content.sticker.sticker
         else -> null
     }
     else -> null

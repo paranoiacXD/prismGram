@@ -1,11 +1,13 @@
 package com.prismgram.ui.chat
 
+import android.util.Log
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -82,6 +84,7 @@ import com.prismgram.R
 import com.prismgram.chats.ChatUiState
 import com.prismgram.chats.MessageItem
 import com.prismgram.chats.MessageMedia
+import com.prismgram.chats.ReactionItem
 import com.prismgram.ui.common.ErrorPanel
 import com.prismgram.ui.common.LoadingScreen
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +109,7 @@ fun ChatScreen(
     onConsumeJump: () -> Unit,
     onOpenPinned: () -> Unit,
     onClosePinned: () -> Unit,
+    onToggleReaction: (Long, String, Boolean) -> Unit,
 ) {
     val ready = state as? ChatUiState.Ready
 
@@ -144,6 +148,7 @@ fun ChatScreen(
                         onLongPress = { actionMessage = it },
                         onMediaClick = { viewerPath = it },
                         onConsumeJump = onConsumeJump,
+                        onToggleReaction = onToggleReaction,
                     )
                 }
             }
@@ -181,6 +186,11 @@ fun ChatScreen(
             },
             onDelete = {
                 onDelete(message.id, message.isOutgoing)
+                actionMessage = null
+            },
+            onReact = { emoji ->
+                val chosen = message.reactions.firstOrNull { it.emoji == emoji }?.chosen == true
+                onToggleReaction(message.id, emoji, chosen)
                 actionMessage = null
             },
         )
@@ -431,6 +441,7 @@ private fun MessageList(
     onLongPress: (MessageItem) -> Unit,
     onMediaClick: (String) -> Unit,
     onConsumeJump: () -> Unit,
+    onToggleReaction: (Long, String, Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val newestId = state.messages.firstOrNull()?.id
@@ -482,7 +493,7 @@ private fun MessageList(
                 }
             },
         ) { message ->
-            MessageRow(message, onLongPress, onMediaClick)
+            MessageRow(message, onLongPress, onMediaClick, onToggleReaction)
         }
     }
 }
@@ -492,6 +503,7 @@ private fun MessageRow(
     message: MessageItem,
     onLongPress: (MessageItem) -> Unit,
     onMediaClick: (String) -> Unit,
+    onToggleReaction: (Long, String, Boolean) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         if (message.dateLabel != null) {
@@ -538,7 +550,7 @@ private fun MessageRow(
                 .padding(vertical = 1.dp),
             contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
-            MessageBubble(message, onLongPress, onMediaClick)
+            MessageBubble(message, onLongPress, onMediaClick, onToggleReaction)
         }
     }
 }
@@ -569,6 +581,7 @@ private fun DaySeparator(label: String) {
 @Composable
 private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit) {
     val path = message.mediaPath
+    var failed by remember(path) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier.combinedClickable(
@@ -576,22 +589,29 @@ private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit
             onLongClick = { onLongPress(message) },
         ),
     ) {
+        val emoji = message.showEmoji ?: "\uD83D\uDC45"
+
         when {
             // animated stickers are tgs, lottie draws those
-            path != null && path.endsWith(".tgs") -> LottieSticker(
+            path != null && !failed && path.endsWith(".tgs") -> LottieSticker(
                 path = path,
+                fallbackEmoji = emoji,
                 modifier = Modifier.size(140.dp),
             )
 
-            path != null -> AsyncImage(
+            path != null && !failed -> AsyncImage(
                 model = path,
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
+                onError = { state ->
+                    Log.e("ChatScreen", "sticker image failed: $path", state.result.throwable)
+                    failed = true
+                },
                 modifier = Modifier.size(140.dp),
             )
 
             else -> Text(
-                text = message.showEmoji ?: "\uD83D\uDC45",
+                text = emoji,
                 style = MaterialTheme.typography.displaySmall,
                 modifier = Modifier.padding(8.dp),
             )
@@ -600,7 +620,7 @@ private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit
 }
 
 @Composable
-private fun LottieSticker(path: String, modifier: Modifier = Modifier) {
+private fun LottieSticker(path: String, fallbackEmoji: String, modifier: Modifier = Modifier) {
     // tgs files are gzipped lottie json, so they need a gunzip first
     val composition by produceState<LottieComposition?>(initialValue = null, path) {
         value = withContext(Dispatchers.IO) {
@@ -609,7 +629,8 @@ private fun LottieSticker(path: String, modifier: Modifier = Modifier) {
                     val stream = if (path.endsWith(".tgs")) GZIPInputStream(fileInput) else fileInput
                     LottieCompositionFactory.fromJsonInputStreamSync(stream, path).value
                 }
-            }.getOrNull()
+            }.onFailure { Log.e("ChatScreen", "lottie failed for $path", it) }
+                .getOrNull()
         }
     }
 
@@ -620,11 +641,12 @@ private fun LottieSticker(path: String, modifier: Modifier = Modifier) {
             modifier = modifier,
         )
     } else {
+        // if lottie cant read it at least show the emoji
         Box(
             modifier = modifier,
             contentAlignment = Alignment.Center,
         ) {
-            Text("…", style = MaterialTheme.typography.titleLarge)
+            Text(fallbackEmoji, style = MaterialTheme.typography.displaySmall)
         }
     }
 }
@@ -635,6 +657,7 @@ private fun MessageBubble(
     message: MessageItem,
     onLongPress: (MessageItem) -> Unit,
     onMediaClick: (String) -> Unit,
+    onToggleReaction: (Long, String, Boolean) -> Unit,
 ) {
     Surface(
         shape = RoundedCornerShape(
@@ -730,6 +753,45 @@ private fun MessageBubble(
                     )
                 }
             }
+
+            if (message.reactions.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    message.reactions.forEach { reaction ->
+                        ReactionChip(reaction) {
+                            onToggleReaction(message.id, reaction.emoji, reaction.chosen)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReactionChip(reaction: ReactionItem, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (reaction.chosen) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = reaction.emoji, style = MaterialTheme.typography.labelMedium)
+            if (reaction.count > 1) {
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = reaction.count.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -797,6 +859,9 @@ private fun MediaView(message: MessageItem, onMediaClick: (String) -> Unit) {
                 model = message.mediaPath,
                 contentDescription = label,
                 contentScale = ContentScale.Crop,
+                onError = { state ->
+                    Log.e("ChatScreen", "media image failed: ${message.mediaPath}", state.result.throwable)
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -895,12 +960,42 @@ private fun MessageActions(
     onCopy: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onReact: (String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val clipboard = LocalClipboardManager.current
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            // quick reactions
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                listOf("\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDD25", "\uD83D\uDE02", "\uD83C\uDF89", "\uD83D\uDE4F").forEach { emoji ->
+                    val chosen = message.reactions.firstOrNull { it.emoji == emoji }?.chosen == true
+                    Surface(
+                        shape = CircleShape,
+                        color = if (chosen) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        },
+                        modifier = Modifier.clickable { onReact(emoji) },
+                    ) {
+                        Text(
+                            text = emoji,
+                            fontSize = 20.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+
             ActionRow(Icons.Filled.Reply, "Reply", onReply)
             if (message.text.isNotBlank()) {
                 ActionRow(Icons.Filled.ContentCopy, "Copy") {

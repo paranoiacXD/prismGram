@@ -238,6 +238,9 @@ fun PrismGramRoot(
                                     onConsumeJump = { chatViewModel.consumeJump() },
                                     onOpenPinned = { chatViewModel.openPinned() },
                                     onClosePinned = { chatViewModel.closePinned() },
+                                    onToggleReaction = { id, emoji, chosen ->
+                                        chatViewModel.toggleReaction(id, emoji, chosen)
+                                    },
                                 )
                             }
                         }

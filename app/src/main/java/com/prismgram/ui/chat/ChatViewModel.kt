@@ -41,6 +41,9 @@ class ChatViewModel(private val repository: ChatRepository) : ViewModel() {
 
     fun closePinned() = repository.closePinned()
 
+    fun toggleReaction(messageId: Long, emoji: String, chosen: Boolean) =
+        repository.toggleReaction(messageId, emoji, chosen)
+
     companion object {
         fun factory(repository: ChatRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
