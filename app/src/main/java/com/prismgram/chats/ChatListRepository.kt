@@ -51,6 +51,7 @@ class ChatListRepository(
 
     private var started = false
     private var loaded = false
+    private var selfUserId = 0L
 
     init {
         // cant load chats before login is done, so wait for it
@@ -113,25 +114,28 @@ class ChatListRepository(
     // made the whole sync phase stutter
     fun requestPhotos(chatIds: List<Long>) {
         if (chatIds.isEmpty()) return
-        var changed = false
-        for (chatId in chatIds) {
-            val chat = chats[chatId] ?: continue
-            if (photoPaths.containsKey(chatId)) continue
-            val file = chat.photo?.small ?: continue
+        // never do this on the caller thread, it gets called while scrolling
+        scope.launch {
+            var changed = false
+            for (chatId in chatIds) {
+                val chat = chats[chatId] ?: continue
+                if (photoPaths.containsKey(chatId)) continue
+                val file = chat.photo?.small ?: continue
 
-            if (file.local.isDownloadingCompleted && file.local.path.isNotBlank()) {
-                photoPaths[chatId] = file.local.path
-                changed = true
-                continue
-            }
+                if (file.local.isDownloadingCompleted && file.local.path.isNotBlank()) {
+                    photoPaths[chatId] = file.local.path
+                    changed = true
+                    continue
+                }
 
-            // putIfAbsent doubles as "already asked for this one"
-            if (photoFileChats.putIfAbsent(file.id, chatId) == null) {
-                // just fire it off, updateFile tells us when its done
-                td.send(TdApi.DownloadFile(file.id, 4, 0L, 0L, false))
+                // putIfAbsent doubles as "already asked for this one"
+                if (photoFileChats.putIfAbsent(file.id, chatId) == null) {
+                    // just fire it off, updateFile tells us when its done
+                    td.send(TdApi.DownloadFile(file.id, 4, 0L, 0L, false))
+                }
             }
+            if (changed) requestRebuild()
         }
-        if (changed) requestRebuild()
     }
 
     private fun requestRebuild() {
@@ -139,6 +143,9 @@ class ChatListRepository(
     }
 
     private suspend fun initialLoad() {
+        // needed to recognise the saved messages chat later
+        runCatching { td.await(TdApi.GetMe()) }.getOrNull()?.let { selfUserId = it.id }
+
         loadList(TdApi.ChatListMain())
 
         // chats arrive through updateNewChat, this catches any we somehow missed
@@ -270,15 +277,22 @@ class ChatListRepository(
             // order 0 means the chat left the list
             if (position.order == 0L) return@mapNotNull null
 
+            val isSavedMessages = selfUserId != 0L &&
+                (chat.type as? TdApi.ChatTypePrivate)?.userId == selfUserId
+
             val fresh = ChatListItem(
                 id = chat.id,
-                title = chat.title.orEmpty().ifBlank { "Unknown" },
+                title = if (isSavedMessages) "Saved Messages" else chat.title.orEmpty().ifBlank { "Unknown" },
                 photoPath = photoPaths[chat.id],
                 lastMessagePreview = messagePreview(chat.lastMessage?.content),
-                lastMessageDate = chat.lastMessage?.date?.toLong(),
+                // formatting happens here on a background thread, not per row during scroll
+                formattedDate = chat.lastMessage?.date
+                    ?.takeIf { it > 0 }
+                    ?.let { formatTimestamp(it.toLong()) },
                 unreadCount = chat.unreadCount,
                 isPinned = position.isPinned,
                 isMuted = (chat.notificationSettings?.muteFor ?: 0) > 0,
+                isSavedMessages = isSavedMessages,
                 order = position.order,
             )
             // keep the old instance when nothing changed, rows that didnt

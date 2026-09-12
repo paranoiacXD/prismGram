@@ -1,0 +1,3140 @@
+==================================================
+PROJECT FILE LIST OVERVIEW
+==================================================
+
+- gradle.properties
+- app\proguard-rules.pro
+- app\src\main\AndroidManifest.xml
+- app\src\main\java\com\prismgram\MainActivity.kt
+- app\src\main\java\com\prismgram\PrismGramApp.kt
+- app\src\main\java\com\prismgram\account\AccountInfo.kt
+- app\src\main\java\com\prismgram\account\AccountRepository.kt
+- app\src\main\java\com\prismgram\auth\AuthRepository.kt
+- app\src\main\java\com\prismgram\auth\AuthState.kt
+- app\src\main\java\com\prismgram\chats\ChatListItem.kt
+- app\src\main\java\com\prismgram\chats\ChatListRepository.kt
+- app\src\main\java\com\prismgram\tdlib\TdClient.kt
+- app\src\main\java\com\prismgram\ui\PrismGramRoot.kt
+- app\src\main\java\com\prismgram\ui\account\AccountScreen.kt
+- app\src\main\java\com\prismgram\ui\account\AccountViewModel.kt
+- app\src\main\java\com\prismgram\ui\auth\AuthScreens.kt
+- app\src\main\java\com\prismgram\ui\auth\AuthViewModel.kt
+- app\src\main\java\com\prismgram\ui\auth\Countries.kt
+- app\src\main\java\com\prismgram\ui\auth\CountryPicker.kt
+- app\src\main\java\com\prismgram\ui\chats\ChatListScreen.kt
+- app\src\main\java\com\prismgram\ui\chats\ChatListViewModel.kt
+- app\src\main\java\com\prismgram\ui\common\Common.kt
+- app\src\main\java\com\prismgram\ui\theme\Theme.kt
+- app\src\main\java\org\drinkless\tdlib\Client.java
+- app\src\main\res\drawable\ic_launcher.xml
+- app\src\main\res\values\strings.xml
+- app\src\main\res\values\themes.xml
+- app\src\main\res\values-night\themes.xml
+
+
+==================================================
+FILE: gradle.properties
+==================================================
+
+org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+org.gradle.parallel=true
+org.gradle.caching=true
+
+android.useAndroidX=true
+android.nonTransitiveRClass=true
+
+kotlin.code.style=official
+
+
+==================================================
+FILE: app\proguard-rules.pro
+==================================================
+
+# dont touch this, the tdlib classes are called from jni
+-keep class org.drinkless.tdlib.** { *; }
+
+
+==================================================
+FILE: app\src\main\AndroidManifest.xml
+==================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:name=".PrismGramApp"
+        android:allowBackup="true"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PrismGram">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.PrismGram">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\MainActivity.kt
+==================================================
+
+package com.prismgram
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.prismgram.ui.PrismGramRoot
+import com.prismgram.ui.account.AccountViewModel
+import com.prismgram.ui.auth.AuthViewModel
+import com.prismgram.ui.chats.ChatListViewModel
+import com.prismgram.ui.theme.PrismGramTheme
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+
+        val container = (application as PrismGramApp).container
+
+        setContent {
+            PrismGramTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
+                ) {
+                    val authViewModel: AuthViewModel =
+                        viewModel(factory = AuthViewModel.factory(container.authRepository))
+                    val accountViewModel: AccountViewModel =
+                        viewModel(factory = AccountViewModel.factory(container.accountRepository))
+                    val chatListViewModel: ChatListViewModel =
+                        viewModel(factory = ChatListViewModel.factory(container.chatListRepository))
+
+                    PrismGramRoot(authViewModel, accountViewModel, chatListViewModel)
+                }
+            }
+        }
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\PrismGramApp.kt
+==================================================
+
+package com.prismgram
+
+import android.app.Application
+import android.content.Context
+import com.prismgram.account.AccountRepository
+import com.prismgram.auth.AuthRepository
+import com.prismgram.chats.ChatListRepository
+import com.prismgram.tdlib.TdClient
+
+class AppContainer(context: Context) {
+    private val appContext = context.applicationContext
+
+    val tdClient = TdClient()
+    val authRepository = AuthRepository(tdClient, appContext)
+    val accountRepository = AccountRepository(tdClient)
+    val chatListRepository = ChatListRepository(tdClient, authRepository.state)
+}
+
+class PrismGramApp : Application() {
+    lateinit var container: AppContainer
+        private set
+
+    override fun onCreate() {
+        super.onCreate()
+        container = AppContainer(this)
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\account\AccountInfo.kt
+==================================================
+
+package com.prismgram.account
+
+data class AccountInfo(
+    val id: Long,
+    val firstName: String,
+    val lastName: String,
+    val username: String?,
+    val phoneNumber: String?,
+    val bio: String?,
+    val photoPath: String?,
+) {
+    val displayName: String
+        get() = listOf(firstName, lastName)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .ifBlank { "Unknown" }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\account\AccountRepository.kt
+==================================================
+
+package com.prismgram.account
+
+import com.prismgram.tdlib.TdClient
+import org.drinkless.tdlib.TdApi
+
+class AccountRepository(private val td: TdClient) {
+
+    suspend fun loadAccount(): AccountInfo {
+        val me = td.await(TdApi.GetMe())
+
+        val fullInfo = runCatching { td.await(TdApi.GetUserFullInfo(me.id)) }.getOrNull()
+        val bio = fullInfo?.bio?.text?.takeIf { it.isNotBlank() }
+
+        val username = me.usernames?.editableUsername?.takeIf { it.isNotBlank() }
+            ?: me.usernames?.activeUsernames?.firstOrNull { it.isNotBlank() }
+
+        val phone = me.phoneNumber?.takeIf { it.isNotBlank() }
+
+        val photoPath = me.profilePhoto?.small?.let { downloadProfilePhoto(it) }
+
+        return AccountInfo(
+            id = me.id,
+            firstName = me.firstName.orEmpty(),
+            lastName = me.lastName.orEmpty(),
+            username = username,
+            phoneNumber = phone,
+            bio = bio,
+            photoPath = photoPath,
+        )
+    }
+
+    private suspend fun downloadProfilePhoto(file: TdApi.File): String? {
+        if (file.local.isDownloadingCompleted && file.local.path.isNotBlank()) {
+            return file.local.path
+        }
+
+        val downloaded = runCatching {
+            td.await(TdApi.DownloadFile(file.id, PRIORITY, 0L, 0L, true))
+        }.getOrNull() ?: return null
+
+        return downloaded.local.path.takeIf {
+            downloaded.local.isDownloadingCompleted && it.isNotBlank()
+        }
+    }
+
+    suspend fun signOut() {
+        td.await(TdApi.LogOut())
+    }
+
+    private companion object {
+        const val PRIORITY = 32
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\auth\AuthRepository.kt
+==================================================
+
+package com.prismgram.auth
+
+import android.content.Context
+import android.os.Build
+import android.util.Log
+import com.prismgram.BuildConfig
+import com.prismgram.tdlib.TdClient
+import com.prismgram.tdlib.TdException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import org.drinkless.tdlib.TdApi
+import java.io.File
+
+// the whole login flow lives here, tdlib tells us what it wants next
+class AuthRepository(
+    private val td: TdClient,
+    private val context: Context,
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val _state = MutableStateFlow<AuthState>(AuthState.Initializing)
+    val state: StateFlow<AuthState> = _state.asStateFlow()
+
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val errors: SharedFlow<String> = _errors.asSharedFlow()
+
+    private var started = false
+    private var parametersSet = false
+
+    // without this we never hear from tdlib
+    fun start() {
+        if (started) return
+        started = true
+
+        scope.launch {
+            td.updates.collect { update ->
+                if (update is TdApi.UpdateAuthorizationState) {
+                    handleAuthorizationState(update.authorizationState)
+                }
+            }
+        }
+
+        // the first update sometimes slips away before we start listening, so ask again
+        scope.launch {
+            runCatching { td.await(TdApi.GetAuthorizationState()) }
+                .onSuccess { handleAuthorizationState(it) }
+                .onFailure { reportError(it) }
+        }
+    }
+
+    fun submitPhoneNumber(phoneNumber: String) = runRequest {
+        td.await(TdApi.SetAuthenticationPhoneNumber(phoneNumber, null))
+    }
+
+    fun submitCode(code: String) = runRequest {
+        td.await(TdApi.CheckAuthenticationCode(code))
+    }
+
+    fun submitPassword(password: String) = runRequest {
+        td.await(TdApi.CheckAuthenticationPassword(password))
+    }
+
+    fun resendCode() = runRequest {
+        td.await(TdApi.ResendAuthenticationCode())
+    }
+
+    private fun runRequest(block: suspend () -> Unit) {
+        scope.launch {
+            _busy.value = true
+            try {
+                block()
+            } catch (t: Throwable) {
+                reportError(t)
+            } finally {
+                _busy.value = false
+            }
+        }
+    }
+
+    private fun handleAuthorizationState(state: TdApi.AuthorizationState) {
+        when (state) {
+            is TdApi.AuthorizationStateWaitTdlibParameters -> ensureParametersSet()
+            is TdApi.AuthorizationStateWaitPhoneNumber -> _state.value = AuthState.WaitPhoneNumber
+            is TdApi.AuthorizationStateWaitCode -> _state.value = AuthState.WaitCode(state.codeInfo)
+            is TdApi.AuthorizationStateWaitPassword -> _state.value = AuthState.WaitPassword(
+                hint = state.passwordHint.orEmpty(),
+                hasRecoveryEmail = state.hasRecoveryEmailAddress,
+                recoveryEmailPattern = state.recoveryEmailAddressPattern.orEmpty(),
+            )
+            is TdApi.AuthorizationStateReady -> _state.value = AuthState.Ready
+            is TdApi.AuthorizationStateClosed -> _state.value = AuthState.Closed
+            else -> {
+                Log.w(TAG, "Unhandled authorization state: ${state.javaClass.simpleName}")
+                _state.value = AuthState.Unsupported(state.javaClass.simpleName)
+            }
+        }
+    }
+
+    private fun ensureParametersSet() {
+        if (parametersSet) return
+        parametersSet = true
+
+        scope.launch {
+            try {
+                val databaseDir = File(context.filesDir, "tdlib/db").apply { mkdirs() }
+                val filesDir = File(context.filesDir, "tdlib/files").apply { mkdirs() }
+
+                val parameters = TdApi.SetTdlibParameters().apply {
+                    useTestDc = false
+                    databaseDirectory = databaseDir.absolutePath
+                    filesDirectory = filesDir.absolutePath
+                    databaseEncryptionKey = byteArrayOf()
+                    useFileDatabase = true
+                    useChatInfoDatabase = true
+                    useMessageDatabase = true
+                    useSecretChats = false
+                    apiId = BuildConfig.TG_API_ID
+                    apiHash = BuildConfig.TG_API_HASH
+                    systemLanguageCode = "en"
+                    deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}"
+                    systemVersion = "Android ${Build.VERSION.RELEASE}"
+                    applicationVersion = BuildConfig.VERSION_NAME
+                }
+
+                td.await(parameters)
+            } catch (t: Throwable) {
+                reportError(t)
+            }
+        }
+    }
+
+    private fun reportError(t: Throwable) {
+        Log.e(TAG, "Authorization error", t)
+        _errors.tryEmit(describeError(t))
+    }
+
+    private fun describeError(t: Throwable): String {
+        if (t is TdException) {
+            return when (t.error.message) {
+                "PHONE_NUMBER_INVALID" ->
+                    "That phone number looks invalid. Use international format, e.g. +15551234567."
+                "PHONE_CODE_INVALID" -> "The code you entered is incorrect."
+                "PHONE_CODE_EXPIRED" -> "That code has expired. Request a new one."
+                "PASSWORD_HASH_INVALID" -> "Incorrect 2-step verification password."
+                "Authentication code can't be resend" ->
+                    "Please wait a moment before requesting another code."
+                "API_ID_INVALID", "API_ID_PUBLISHED_FLOOD" ->
+                    "TDLib rejected the api_id/api_hash. Set valid values in local.properties."
+                else -> t.error.message
+            }
+        }
+        return t.message ?: "Unknown error"
+    }
+
+    companion object {
+        private const val TAG = "AuthRepository"
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\auth\AuthState.kt
+==================================================
+
+package com.prismgram.auth
+
+import org.drinkless.tdlib.TdApi
+
+sealed interface AuthState {
+    data object Initializing : AuthState
+    data object WaitPhoneNumber : AuthState
+    data class WaitCode(val codeInfo: TdApi.AuthenticationCodeInfo?) : AuthState
+    data class WaitPassword(
+        val hint: String,
+        val hasRecoveryEmail: Boolean,
+        val recoveryEmailPattern: String,
+    ) : AuthState
+
+    data object Ready : AuthState
+    data object Closed : AuthState
+    data class Unsupported(val stateName: String) : AuthState
+    data class Error(val message: String) : AuthState
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\chats\ChatListItem.kt
+==================================================
+
+package com.prismgram.chats
+
+import org.drinkless.tdlib.TdApi
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+
+data class ChatListItem(
+    val id: Long,
+    val title: String,
+    val photoPath: String?,
+    val lastMessagePreview: String,
+    val lastMessageDate: Long?,
+    val unreadCount: Int,
+    val isPinned: Boolean,
+    val isMuted: Boolean,
+    val order: Long,
+)
+
+// folder tab, folderId 0 means the main "All" list
+data class FolderTab(
+    val folderId: Int,
+    val title: String,
+    val icon: String?,
+)
+
+sealed interface ChatListUiState {
+    data object Loading : ChatListUiState
+    data object Empty : ChatListUiState
+    data class Ready(val chats: List<ChatListItem>) : ChatListUiState
+}
+
+// short text for the second row of a chat row
+fun messagePreview(content: TdApi.MessageContent?): String {
+    if (content == null) return ""
+    return when (content) {
+        is TdApi.MessageText -> content.text.text
+        is TdApi.MessagePhoto -> "Photo"
+        is TdApi.MessageVideo -> "Video"
+        is TdApi.MessageAnimation -> "GIF"
+        is TdApi.MessageSticker -> "${content.sticker.emoji.orEmpty()} Sticker"
+        is TdApi.MessageVoiceNote -> "Voice message"
+        is TdApi.MessageAudio -> "Audio"
+        is TdApi.MessageDocument -> content.document.fileName.orEmpty().ifBlank { "File" }
+        is TdApi.MessagePoll -> "Poll"
+        is TdApi.MessageDice -> "Dice"
+        is TdApi.MessageExpiredPhoto -> "Photo"
+        is TdApi.MessageExpiredVideo -> "Video"
+        else -> "Message"
+    }
+}
+
+// these are stupidly expensive to create, making a fresh one per row per frame
+// was the main reason scrolling tanked to like 13fps
+private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private val monthFormatter = DateTimeFormatter.ofPattern("d MMM")
+private val oldFormatter = DateTimeFormatter.ofPattern("d.MM.yy")
+
+// HH:mm for today, d MMM for this year, d.MM.yy for older
+fun formatTimestamp(unixSeconds: Long): String {
+    val time = Instant.ofEpochSecond(unixSeconds).atZone(ZoneId.systemDefault())
+    val now = ZonedDateTime.now()
+    return when {
+        time.toLocalDate() == now.toLocalDate() -> time.format(timeFormatter)
+        time.year == now.year -> time.format(monthFormatter)
+        else -> time.format(oldFormatter)
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\chats\ChatListRepository.kt
+==================================================
+
+package com.prismgram.chats
+
+import android.util.Log
+import com.prismgram.auth.AuthState
+import com.prismgram.tdlib.TdClient
+import com.prismgram.tdlib.TdException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.launch
+import org.drinkless.tdlib.TdApi
+import java.util.concurrent.ConcurrentHashMap
+
+// keeps the chat list in sync with tdlib. loads once after login, then just reacts to updates
+class ChatListRepository(
+    private val td: TdClient,
+    authState: StateFlow<AuthState>,
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val _state = MutableStateFlow<ChatListUiState>(ChatListUiState.Loading)
+    val state: StateFlow<ChatListUiState> = _state.asStateFlow()
+
+    private val _folders = MutableStateFlow<List<FolderTab>>(emptyList())
+    val folders: StateFlow<List<FolderTab>> = _folders.asStateFlow()
+
+    private val _selectedFolderId = MutableStateFlow(0)
+    val selectedFolderId: StateFlow<Int> = _selectedFolderId.asStateFlow()
+
+    private val chats = ConcurrentHashMap<Long, TdApi.Chat>()
+    private val photoPaths = ConcurrentHashMap<Long, String>()
+
+    // file id -> chat id, only for downloads we started ourselves
+    private val photoFileChats = ConcurrentHashMap<Int, Long>()
+    private val requestedFolderLoads = HashSet<Int>()
+
+    // same chat -> same instance unless something actually changed.
+    // lets compose skip recomposing rows that didnt move
+    private val itemCache = ConcurrentHashMap<Long, ChatListItem>()
+
+    // tdlib loves to dump hundreds of updates in a row, without this the list
+    // would rebuild + resort itself a few hundred times on startup
+    private val rebuildRequests = Channel<Unit>(Channel.CONFLATED)
+
+    private var started = false
+    private var loaded = false
+
+    init {
+        // cant load chats before login is done, so wait for it
+        scope.launch {
+            authState.collect { state ->
+                when (state) {
+                    is AuthState.Ready -> {
+                        if (!loaded) {
+                            loaded = true
+                            initialLoad()
+                        }
+                    }
+                    is AuthState.WaitPhoneNumber,
+                    is AuthState.Closed -> {
+                        if (loaded) {
+                            loaded = false
+                            chats.clear()
+                            photoPaths.clear()
+                            photoFileChats.clear()
+                            itemCache.clear()
+                            synchronized(requestedFolderLoads) { requestedFolderLoads.clear() }
+                            _folders.value = emptyList()
+                            _selectedFolderId.value = 0
+                            _state.value = ChatListUiState.Loading
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+        }
+
+        // bursts collapse into one rebuild
+        scope.launch {
+            rebuildRequests.consumeAsFlow().collectLatest {
+                delay(60)
+                rebuild()
+            }
+        }
+    }
+
+    fun start() {
+        if (started) return
+        started = true
+        scope.launch {
+            td.updates.collect { update ->
+                runCatching { handleUpdate(update) }
+                    .onFailure { Log.e(TAG, "update failed", it) }
+            }
+        }
+    }
+
+    fun selectFolder(folderId: Int) {
+        if (_selectedFolderId.value == folderId) return
+        _selectedFolderId.value = folderId
+        requestRebuild()
+    }
+
+    // the screen tells us which chats are on screen, we only download those.
+    // asking for every avatar at once at startup flooded the network and
+    // made the whole sync phase stutter
+    fun requestPhotos(chatIds: List<Long>) {
+        if (chatIds.isEmpty()) return
+        var changed = false
+        for (chatId in chatIds) {
+            val chat = chats[chatId] ?: continue
+            if (photoPaths.containsKey(chatId)) continue
+            val file = chat.photo?.small ?: continue
+
+            if (file.local.isDownloadingCompleted && file.local.path.isNotBlank()) {
+                photoPaths[chatId] = file.local.path
+                changed = true
+                continue
+            }
+
+            // putIfAbsent doubles as "already asked for this one"
+            if (photoFileChats.putIfAbsent(file.id, chatId) == null) {
+                // just fire it off, updateFile tells us when its done
+                td.send(TdApi.DownloadFile(file.id, 4, 0L, 0L, false))
+            }
+        }
+        if (changed) requestRebuild()
+    }
+
+    private fun requestRebuild() {
+        rebuildRequests.trySend(Unit)
+    }
+
+    private suspend fun initialLoad() {
+        loadList(TdApi.ChatListMain())
+
+        // chats arrive through updateNewChat, this catches any we somehow missed
+        val result = runCatching { td.await(TdApi.GetChats(TdApi.ChatListMain(), 200)) }.getOrNull()
+        result?.chatIds?.forEach { chatId ->
+            if (!chats.containsKey(chatId)) {
+                runCatching { td.await(TdApi.GetChat(chatId)) }.getOrNull()?.let { chat ->
+                    chats[chat.id] = chat
+                }
+            }
+        }
+
+        requestRebuild()
+    }
+
+    // loadChats 404s with "Chat list is empty" when everything is loaded already, thats fine
+    private suspend fun loadList(list: TdApi.ChatList) {
+        runCatching { td.await(TdApi.LoadChats(list, 100)) }
+            .onFailure { e ->
+                val msg = (e as? TdException)?.error?.message ?: ""
+                if (msg != "Chat list is empty") Log.w(TAG, "loadChats: $msg")
+            }
+    }
+
+    private fun handleUpdate(update: TdApi.Object) {
+        when (update) {
+            is TdApi.UpdateNewChat -> {
+                chats[update.chat.id] = update.chat
+                requestRebuild()
+            }
+
+            is TdApi.UpdateChatLastMessage -> {
+                chats[update.chatId]?.let { chat ->
+                    chat.lastMessage = update.lastMessage
+                    chat.positions = update.positions
+                }
+                requestRebuild()
+            }
+
+            is TdApi.UpdateChatPosition -> {
+                chats[update.chatId]?.let { chat ->
+                    val position = update.position
+                    val others = chat.positions.filter {
+                        it.list.getConstructor() != position.list.getConstructor()
+                    }
+                    chat.positions = (others + position).toTypedArray()
+                }
+                requestRebuild()
+            }
+
+            is TdApi.UpdateChatReadInbox -> {
+                chats[update.chatId]?.unreadCount = update.unreadCount
+                requestRebuild()
+            }
+
+            is TdApi.UpdateChatNotificationSettings -> {
+                chats[update.chatId]?.notificationSettings = update.notificationSettings
+                requestRebuild()
+            }
+
+            is TdApi.UpdateChatTitle -> {
+                chats[update.chatId]?.title = update.title
+                requestRebuild()
+            }
+
+            is TdApi.UpdateChatPhoto -> {
+                chats[update.chatId]?.photo = update.photo
+                requestRebuild()
+            }
+
+            is TdApi.UpdateChatFolders -> {
+                applyFolders(update.chatFolders, update.mainChatListPosition)
+            }
+
+            is TdApi.UpdateFile -> {
+                val file = update.file
+                val chatId = photoFileChats[file.id] ?: return
+                if (file.local.isDownloadingCompleted && file.local.path.isNotBlank()) {
+                    if (photoPaths[chatId] != file.local.path) {
+                        photoPaths[chatId] = file.local.path
+                        requestRebuild()
+                    }
+                }
+            }
+
+            else -> Unit
+        }
+    }
+
+    private fun applyFolders(infos: Array<TdApi.ChatFolderInfo>?, mainChatListPosition: Int) {
+        val folderTabs = infos.orEmpty().map { info ->
+            FolderTab(
+                folderId = info.id,
+                title = info.name.text.text.orEmpty().ifBlank { "Folder" },
+                icon = info.icon?.name?.takeIf { it.isNotBlank() },
+            )
+        }
+        val main = FolderTab(0, "All", null)
+
+        // main list sits wherever the user put it among the folders
+        val position = mainChatListPosition.coerceIn(0, folderTabs.size)
+        _folders.value = folderTabs.subList(0, position) + main + folderTabs.subList(position, folderTabs.size)
+
+        // folder chats need a separate loadChats each
+        scope.launch {
+            for (tab in folderTabs) {
+                val shouldLoad = synchronized(requestedFolderLoads) {
+                    requestedFolderLoads.add(tab.folderId)
+                }
+                if (shouldLoad) {
+                    loadList(TdApi.ChatListFolder(tab.folderId))
+                }
+            }
+            requestRebuild()
+        }
+    }
+
+    private fun rebuild() {
+        val selected = _selectedFolderId.value
+        val items = chats.values.mapNotNull { chat ->
+            val position = chat.positions.firstOrNull { pos ->
+                if (selected == 0) {
+                    pos.list is TdApi.ChatListMain
+                } else {
+                    (pos.list as? TdApi.ChatListFolder)?.chatFolderId == selected
+                }
+            } ?: return@mapNotNull null
+
+            // order 0 means the chat left the list
+            if (position.order == 0L) return@mapNotNull null
+
+            val fresh = ChatListItem(
+                id = chat.id,
+                title = chat.title.orEmpty().ifBlank { "Unknown" },
+                photoPath = photoPaths[chat.id],
+                lastMessagePreview = messagePreview(chat.lastMessage?.content),
+                lastMessageDate = chat.lastMessage?.date?.toLong(),
+                unreadCount = chat.unreadCount,
+                isPinned = position.isPinned,
+                isMuted = (chat.notificationSettings?.muteFor ?: 0) > 0,
+                order = position.order,
+            )
+            // keep the old instance when nothing changed, rows that didnt
+            // change get skipped entirely during recomposition
+            itemCache.compute(chat.id) { _, cached ->
+                if (cached == fresh) cached else fresh
+            } ?: return@mapNotNull null
+        }.sortedWith(
+            compareByDescending<ChatListItem> { it.isPinned }
+                .thenByDescending { it.order }
+                .thenByDescending { it.id },
+        )
+
+        val newState = if (items.isEmpty()) ChatListUiState.Empty else ChatListUiState.Ready(items)
+
+        // bursts of updates often land on the exact same list, no point telling
+        // the ui about it
+        if (_state.value != newState) {
+            _state.value = newState
+        }
+    }
+
+    private companion object {
+        const val TAG = "ChatListRepository"
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\tdlib\TdClient.kt
+==================================================
+
+package com.prismgram.tdlib
+
+import android.util.Log
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import org.drinkless.tdlib.Client
+import org.drinkless.tdlib.TdApi
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+// tdlib hands errors back as plain objects, this makes them throwable
+class TdException(val error: TdApi.Error) : Exception("${error.code}: ${error.message}")
+
+// small wrapper over the tdlib java binding
+class TdClient {
+
+    private val _updates = MutableSharedFlow<TdApi.Object>(
+        replay = 1,
+        extraBufferCapacity = 1024,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    // everything tdlib sends us ends up here
+    val updates: SharedFlow<TdApi.Object> = _updates
+
+    private val client: Client = Client.create(
+        { obj -> _updates.tryEmit(obj) },
+        { e -> Log.e(TAG, "Exception in update handler", e) },
+        { e -> Log.e(TAG, "Exception in result handler", e) },
+    )
+
+    init {
+        // tdlib logs like crazy by default, every network tick goes to logcat.
+        // that alone was eating a core and making the whole app stutter. 1 = errors only
+        runCatching { Client.execute(TdApi.SetLogVerbosityLevel(1)) }
+    }
+
+    // send and forget
+    fun send(function: TdApi.Function<*>, handler: (TdApi.Object) -> Unit = {}) {
+        client.send(function) { obj -> handler(obj) }
+    }
+
+    // send and wait for the answer
+    suspend fun <T : TdApi.Object> await(function: TdApi.Function<T>): T =
+        suspendCancellableCoroutine { continuation ->
+            client.send(function) { obj ->
+                if (obj is TdApi.Error) {
+                    continuation.resumeWithException(TdException(obj))
+                } else {
+                    @Suppress("UNCHECKED_CAST")
+                    continuation.resume(obj as T)
+                }
+            }
+        }
+
+    companion object {
+        private const val TAG = "TdClient"
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\PrismGramRoot.kt
+==================================================
+
+package com.prismgram.ui
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import com.prismgram.auth.AuthState
+import com.prismgram.ui.account.AccountScreen
+import com.prismgram.ui.account.AccountUiState
+import com.prismgram.ui.account.AccountViewModel
+import com.prismgram.ui.auth.AuthViewModel
+import com.prismgram.ui.auth.CodeScreen
+import com.prismgram.ui.auth.PasswordScreen
+import com.prismgram.ui.auth.PhoneScreen
+import com.prismgram.ui.chats.ChatListScreen
+import com.prismgram.ui.chats.ChatListViewModel
+import com.prismgram.ui.common.ErrorPanel
+import com.prismgram.ui.common.LoadingScreen
+
+@Composable
+fun PrismGramRoot(
+    authViewModel: AuthViewModel,
+    accountViewModel: AccountViewModel,
+    chatListViewModel: ChatListViewModel,
+) {
+    val authState by authViewModel.state.collectAsState()
+    val busy by authViewModel.busy.collectAsState()
+    val accountState by accountViewModel.state.collectAsState()
+    val chatListState by chatListViewModel.state.collectAsState()
+    val chatListFolders by chatListViewModel.folders.collectAsState()
+    val chatListSelectedFolder by chatListViewModel.selectedFolderId.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var showPhoneEntry by remember { mutableStateOf(false) }
+    var showProfile by remember { mutableStateOf(false) }
+
+    LaunchedEffect(authState) {
+        when (authState) {
+            is AuthState.Ready -> {
+                showPhoneEntry = false
+                showProfile = false
+                accountViewModel.load()
+            }
+            is AuthState.WaitPhoneNumber -> {
+                showPhoneEntry = false
+                showProfile = false
+            }
+            else -> Unit
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        authViewModel.errors.collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            val state = authState
+            when {
+                state is AuthState.Ready ->
+                    AnimatedContent(
+                        targetState = showProfile,
+                        transitionSpec = {
+                            if (targetState) {
+                                (slideInHorizontally { it } + fadeIn()) togetherWith
+                                    (slideOutHorizontally { -it / 4 } + fadeOut())
+                            } else {
+                                (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
+                                    (slideOutHorizontally { it } + fadeOut())
+                            }
+                        },
+                        label = "main",
+                    ) { profile ->
+                        if (profile) {
+                            AccountScreen(
+                                state = accountState,
+                                onBack = { showProfile = false },
+                            ) { accountViewModel.signOut() }
+                        } else {
+                            ChatListScreen(
+                                state = chatListState,
+                                folders = chatListFolders,
+                                selectedFolderId = chatListSelectedFolder,
+                                myAvatarPath = (accountState as? AccountUiState.Loaded)?.info?.photoPath,
+                                onOpenProfile = { showProfile = true },
+                                onSelectFolder = { chatListViewModel.selectFolder(it) },
+                                onVisibleChatsChanged = { chatListViewModel.requestPhotos(it) },
+                                onChatClick = { },
+                            )
+                        }
+                    }
+
+                showPhoneEntry ->
+                    PhoneScreen(busy) {
+                        showPhoneEntry = false
+                        authViewModel.submitPhoneNumber(it)
+                    }
+
+                state is AuthState.Initializing -> LoadingScreen("Connecting to Telegram…")
+
+                state is AuthState.WaitPhoneNumber -> PhoneScreen(busy) {
+                    authViewModel.submitPhoneNumber(it)
+                }
+
+                state is AuthState.WaitCode -> CodeScreen(
+                    codeInfo = state.codeInfo,
+                    busy = busy,
+                    onResend = { authViewModel.resendCode() },
+                    onBack = { showPhoneEntry = true },
+                ) { authViewModel.submitCode(it) }
+
+                state is AuthState.WaitPassword -> PasswordScreen(
+                    state = state,
+                    busy = busy,
+                    onBack = { showPhoneEntry = true },
+                ) { authViewModel.submitPassword(it) }
+
+                state is AuthState.Closed -> LoadingScreen("Session closed.")
+
+                state is AuthState.Unsupported -> ErrorPanel(
+                    "This authorization step isn't supported yet: ${state.stateName}",
+                )
+
+                state is AuthState.Error -> ErrorPanel(state.message)
+
+                else -> ErrorPanel("Unexpected authorization state.")
+            }
+        }
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\account\AccountScreen.kt
+==================================================
+
+package com.prismgram.ui.account
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import com.prismgram.account.AccountInfo
+import com.prismgram.ui.common.ErrorPanel
+import com.prismgram.ui.common.LoadingScreen
+import java.io.File
+
+@Composable
+fun AccountScreen(state: AccountUiState, onBack: (() -> Unit)? = null, onSignOut: () -> Unit) {
+    when (state) {
+        is AccountUiState.Loading -> LoadingScreen("Loading your account…")
+        is AccountUiState.Error -> ErrorPanel(state.message)
+        is AccountUiState.Loaded -> AccountContent(state.info, onBack, onSignOut)
+    }
+}
+
+@Composable
+private fun AccountContent(info: AccountInfo, onBack: (() -> Unit)?, onSignOut: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+    ) {
+        if (onBack != null) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                )
+            }
+        }
+
+        Text(
+            text = "Account",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+
+        Spacer(Modifier.height(20.dp))
+
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Avatar(info)
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = info.displayName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    textAlign = TextAlign.Center,
+                )
+                if (!info.username.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "@${info.username}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                InfoRow("User ID", info.id.toString())
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                InfoRow("Phone", info.phoneNumber ?: "—")
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                InfoRow("Username", info.username?.let { "@$it" } ?: "—")
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                InfoRow("Bio", info.bio ?: "—")
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        OutlinedButton(
+            onClick = onSignOut,
+            shape = CircleShape,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+        ) {
+            Text("Sign out", style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+@Composable
+private fun Avatar(info: AccountInfo) {
+    Box(
+        modifier = Modifier
+            .size(112.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 3.dp,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
+                shape = CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (info.photoPath != null) {
+            AsyncImage(
+                model = File(info.photoPath),
+                contentDescription = "Profile photo",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Filled.Person,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(60.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+        )
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\account\AccountViewModel.kt
+==================================================
+
+package com.prismgram.ui.account
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.prismgram.account.AccountInfo
+import com.prismgram.account.AccountRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+sealed interface AccountUiState {
+    data object Loading : AccountUiState
+    data class Loaded(val info: AccountInfo) : AccountUiState
+    data class Error(val message: String) : AccountUiState
+}
+
+class AccountViewModel(private val repository: AccountRepository) : ViewModel() {
+
+    private val _state = MutableStateFlow<AccountUiState>(AccountUiState.Loading)
+    val state: StateFlow<AccountUiState> = _state.asStateFlow()
+
+    private var loadedOnce = false
+
+    fun load(force: Boolean = false) {
+        if (loadedOnce && !force) return
+        loadedOnce = true
+        _state.value = AccountUiState.Loading
+
+        viewModelScope.launch {
+            _state.value = runCatching { repository.loadAccount() }.fold(
+                onSuccess = { AccountUiState.Loaded(it) },
+                onFailure = { AccountUiState.Error(it.message ?: "Failed to load account") },
+            )
+        }
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            runCatching { repository.signOut() }.onSuccess { loadedOnce = false }
+        }
+    }
+
+    companion object {
+        fun factory(repository: AccountRepository): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    AccountViewModel(repository) as T
+            }
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\auth\AuthScreens.kt
+==================================================
+
+package com.prismgram.ui.auth
+
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.prismgram.auth.AuthState
+import com.prismgram.ui.common.PrimaryButton
+import org.drinkless.tdlib.TdApi
+
+@Composable
+fun PhoneScreen(busy: Boolean, onSubmit: (String) -> Unit) {
+    val context = LocalContext.current
+    val deviceCountry = remember { Countries.defaultFor(context) }
+
+    var countryIso by rememberSaveable { mutableStateOf(Countries.defaultFor(context).iso) }
+    var manualSelection by rememberSaveable { mutableStateOf(false) }
+    var nationalNumber by rememberSaveable { mutableStateOf("") }
+    var pickerOpen by rememberSaveable { mutableStateOf(false) }
+
+    val selectedCountry = Countries.byIso(countryIso)
+
+    fun submit() {
+        val e164 = Countries.resolveE164(nationalNumber, selectedCountry) ?: return
+        onSubmit(e164)
+    }
+
+    AuthScaffold(
+        title = "Your phone number",
+        subtitle = "Pick your country and enter your number. Telegram will send a login code.",
+    ) {
+        PhoneInput(
+            country = selectedCountry,
+            nationalNumber = nationalNumber,
+            onNumberChange = { input ->
+                val digits = input.filter { it.isDigit() }.take(15)
+                nationalNumber = digits
+                if (!manualSelection) {
+                    Countries.guess(digits, deviceCountry)?.let { countryIso = it.iso }
+                }
+            },
+            onPickCountry = { pickerOpen = true },
+            onSubmit = { submit() },
+        )
+        Spacer(Modifier.height(20.dp))
+        PrimaryButton("Continue", busy, enabled = nationalNumber.isNotBlank()) { submit() }
+    }
+
+    if (pickerOpen) {
+        CountryPickerScreen(
+            onSelect = { picked ->
+                countryIso = picked.iso
+                manualSelection = true
+                pickerOpen = false
+            },
+            onDismiss = { pickerOpen = false },
+        )
+    }
+}
+
+@Composable
+private fun PhoneInput(
+    country: CountryInfo?,
+    nationalNumber: String,
+    onNumberChange: (String) -> Unit,
+    onPickCountry: () -> Unit,
+    onSubmit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                modifier = Modifier.clickable(onClick = onPickCountry),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = country?.flag ?: "\uD83C\uDF10",
+                    fontSize = 20.sp,
+                )
+                if (country != null) {
+                    Text(country.dialCode, style = MaterialTheme.typography.titleMedium)
+                }
+                Icon(
+                    imageVector = Icons.Filled.ArrowDropDown,
+                    contentDescription = "Select country",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            BasicTextField(
+                value = nationalNumber,
+                onValueChange = onNumberChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Phone,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(onDone = { onSubmit() }),
+                modifier = Modifier.weight(1f),
+                decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (nationalNumber.isEmpty()) {
+                            Text(
+                                text = "Phone number",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+fun CodeScreen(
+    codeInfo: TdApi.AuthenticationCodeInfo?,
+    busy: Boolean,
+    onResend: () -> Unit,
+    onBack: () -> Unit,
+    onSubmit: (String) -> Unit,
+) {
+    var code by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+
+    val destination = when (codeInfo?.type) {
+        is TdApi.AuthenticationCodeTypeTelegramMessage -> "in the Telegram app"
+        is TdApi.AuthenticationCodeTypeSms -> "by SMS"
+        is TdApi.AuthenticationCodeTypeCall -> "by phone call"
+        is TdApi.AuthenticationCodeTypeFlashCall -> "by flash call"
+        is TdApi.AuthenticationCodeTypeMissedCall -> "by a missed call"
+        else -> "on your logged-in Telegram devices"
+    }
+    val phone = codeInfo?.phoneNumber
+    val subtitle = buildString {
+        append("We sent a login code $destination")
+        if (!phone.isNullOrBlank()) append(" to $phone")
+        append(".")
+        if (codeInfo?.type is TdApi.AuthenticationCodeTypeTelegramMessage) {
+            append("\nOpen the official Telegram app on any logged-in device and look for the ")
+            append("message from \u201cTelegram\u201d.")
+        }
+    }
+
+    AuthScaffold(title = "Enter the code", subtitle = subtitle, onBack = onBack) {
+        OutlinedTextField(
+            value = code,
+            onValueChange = { input -> code = input.filter { it.isDigit() }.take(6) },
+            label = { Text("Code") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.large,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.NumberPassword,
+                imeAction = ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { if (code.isNotBlank()) onSubmit(code) },
+            ),
+            trailingIcon = {
+                TextButton(onClick = { pasteCode(context) { code = it } }) {
+                    Text("Paste")
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(20.dp))
+        PrimaryButton("Continue", busy, enabled = code.isNotBlank()) { onSubmit(code) }
+        Spacer(Modifier.height(4.dp))
+        TextButton(
+            onClick = onResend,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Didn't get it? Resend code")
+        }
+        if (codeInfo?.type is TdApi.AuthenticationCodeTypeTelegramMessage) {
+            TextButton(
+                onClick = { openTelegramApp(context) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Open Telegram")
+            }
+        }
+    }
+}
+
+@Composable
+fun PasswordScreen(
+    state: AuthState.WaitPassword,
+    busy: Boolean,
+    onBack: () -> Unit,
+    onSubmit: (String) -> Unit,
+) {
+    var password by rememberSaveable { mutableStateOf("") }
+    var visible by rememberSaveable { mutableStateOf(false) }
+
+    val subtitle = buildString {
+        append("This account is protected by a 2-step verification password.")
+        if (state.hint.isNotBlank()) {
+            append("\nHint: ${state.hint}")
+        }
+    }
+
+    AuthScaffold(title = "Enter your password", subtitle = subtitle, onBack = onBack) {
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.large,
+            visualTransformation = if (visible) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { if (password.isNotBlank()) onSubmit(password) },
+            ),
+            trailingIcon = {
+                TextButton(onClick = { visible = !visible }) {
+                    Text(if (visible) "Hide" else "Show")
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(20.dp))
+        PrimaryButton("Continue", busy, enabled = password.isNotBlank()) { onSubmit(password) }
+    }
+}
+
+private fun pasteCode(context: Context, onCode: (String) -> Unit) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    val text = clipboard?.primaryClip
+        ?.takeIf { it.itemCount > 0 }
+        ?.getItemAt(0)
+        ?.coerceToText(context)
+        ?.toString()
+    val digits = text?.filter { it.isDigit() }?.take(6)
+    if (!digits.isNullOrBlank()) onCode(digits)
+}
+
+private fun openTelegramApp(context: Context) {
+    val packageManager = context.packageManager
+    val candidates = listOf(
+        "org.telegram.messenger",
+        "org.telegram.messenger.web",
+        "org.telegram.plus",
+        "nekox.messenger",
+    )
+    val launchIntent = candidates.firstNotNullOfOrNull {
+        packageManager.getLaunchIntentForPackage(it)
+    }
+    val intent = launchIntent
+        ?: Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://play.google.com/store/apps/details?id=org.telegram.messenger"),
+        )
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
+}
+
+@Composable
+private fun AuthScaffold(
+    title: String,
+    subtitle: String?,
+    onBack: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding()
+            .imePadding(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.weight(1f))
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Surface(
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(title, style = MaterialTheme.typography.titleLarge)
+                    if (!subtitle.isNullOrBlank()) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    content()
+                }
+            }
+        }
+
+        Spacer(Modifier.weight(1.35f))
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\auth\AuthViewModel.kt
+==================================================
+
+package com.prismgram.ui.auth
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import com.prismgram.auth.AuthRepository
+import com.prismgram.auth.AuthState
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+
+class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
+
+    val state: StateFlow<AuthState> = repository.state
+    val busy: StateFlow<Boolean> = repository.busy
+    val errors: SharedFlow<String> = repository.errors
+
+    init {
+        repository.start()
+    }
+
+    fun submitPhoneNumber(phoneNumber: String) = repository.submitPhoneNumber(phoneNumber)
+
+    fun submitCode(code: String) = repository.submitCode(code)
+
+    fun submitPassword(password: String) = repository.submitPassword(password)
+
+    fun resendCode() = repository.resendCode()
+
+    companion object {
+        fun factory(repository: AuthRepository): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    AuthViewModel(repository) as T
+            }
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\auth\Countries.kt
+==================================================
+
+package com.prismgram.ui.auth
+
+import android.content.Context
+import android.telephony.TelephonyManager
+import com.google.i18n.phonenumbers.PhoneNumberUtil
+import java.util.Locale
+
+data class CountryInfo(
+    val iso: String,
+    val dialCode: String,
+    val name: String,
+    val flag: String,
+)
+
+// country list + phone number parsing. flags are just emoji so no image assets needed
+object Countries {
+
+    private val phoneUtil = PhoneNumberUtil.getInstance()
+
+    val all: List<CountryInfo> by lazy { buildCountries() }
+
+    fun byIso(iso: String): CountryInfo? =
+        all.firstOrNull { it.iso.equals(iso, ignoreCase = true) }
+
+    // sim first, then network, then locale
+    fun defaultFor(context: Context): CountryInfo {
+        deviceCountry(context)?.let { iso ->
+            byIso(iso)?.let { return it }
+        }
+        return byIso(Locale.getDefault().country.ifBlank { "US" })
+            ?: all.firstOrNull { it.iso == "US" }
+            ?: all.first()
+    }
+
+    // guess the country from the digits the user typed, falls back to sim/locale for local numbers
+    fun guess(digits: String, fallback: CountryInfo?): CountryInfo? {
+        if (digits.isEmpty()) return null
+        detectInternational(digits)?.let { return it }
+        return fallback
+    }
+
+    // only returns something if the digits are a full valid international number
+    fun detectInternational(digits: String): CountryInfo? {
+        if (digits.length < 4) return null
+        val number = runCatching { phoneUtil.parse("+$digits", null) }.getOrNull() ?: return null
+        if (!phoneUtil.isPossibleNumber(number)) return null
+        val region = phoneUtil.getRegionCodeForNumber(number) ?: return null
+        return byIso(region)
+    }
+
+    // makes +XXXXXXXXXX out of whatever was typed
+    fun resolveE164(digits: String, selected: CountryInfo?): String? {
+        val clean = digits.filter { it.isDigit() }
+        if (clean.isEmpty()) return null
+
+        detectInternational(clean)?.let {
+            runCatching {
+                return phoneUtil.format(
+                    phoneUtil.parse("+$clean", null),
+                    PhoneNumberUtil.PhoneNumberFormat.E164,
+                )
+            }
+        }
+
+        selected?.let { country ->
+            runCatching {
+                val number = phoneUtil.parse(clean, country.iso)
+                return phoneUtil.format(number, PhoneNumberUtil.PhoneNumberFormat.E164)
+            }
+        }
+
+        return selected?.let { it.dialCode + clean } ?: "+$clean"
+    }
+
+    private fun deviceCountry(context: Context): String? = runCatching {
+        val telephony = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        val sim = telephony?.simCountryIso
+        if (!sim.isNullOrBlank()) return@runCatching sim
+        val network = telephony?.networkCountryIso
+        if (!network.isNullOrBlank()) return@runCatching network
+        null
+    }.getOrNull()
+
+    private fun buildCountries(): List<CountryInfo> {
+        val result = ArrayList<CountryInfo>()
+        for (region in phoneUtil.supportedRegions) {
+            if (region.length != 2) continue
+            val callingCode = phoneUtil.getCountryCodeForRegion(region)
+            if (callingCode <= 0) continue
+            val name = Locale("", region).displayCountry
+            if (name.isBlank()) continue
+            result.add(
+                CountryInfo(
+                    iso = region,
+                    dialCode = "+$callingCode",
+                    name = name,
+                    flag = region.toFlagEmoji(),
+                ),
+            )
+        }
+        return result.sortedBy { it.name.lowercase(Locale.ROOT) }
+    }
+
+    private fun String.toFlagEmoji(): String {
+        if (length != 2) return ""
+        val regionalIndicatorBase = 0x1F1E6
+        val asciiA = 'A'.code
+        return buildString(4) {
+            appendCodePoint(regionalIndicatorBase + (this@toFlagEmoji[0].uppercaseChar().code - asciiA))
+            appendCodePoint(regionalIndicatorBase + (this@toFlagEmoji[1].uppercaseChar().code - asciiA))
+        }
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\auth\CountryPicker.kt
+==================================================
+
+package com.prismgram.ui.auth
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+
+@Composable
+fun CountryPickerScreen(
+    onSelect: (CountryInfo) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+
+    val results = remember(query) {
+        val q = query.trim()
+        if (q.isEmpty()) {
+            Countries.all
+        } else {
+            Countries.all.filter {
+                it.name.contains(q, ignoreCase = true) ||
+                    it.dialCode.contains(q) ||
+                    it.iso.contains(q, ignoreCase = true)
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .systemBarsPadding(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                        )
+                    }
+                    Text(
+                        text = "Select country",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search country or code") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.large,
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(results, key = { it.iso }) { country ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(country) }
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(country.flag, fontSize = 22.sp)
+                            Spacer(Modifier.width(16.dp))
+                            Text(
+                                text = country.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = country.dialCode,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\chats\ChatListScreen.kt
+==================================================
+
+package com.prismgram.ui.chats
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.prismgram.chats.ChatListItem
+import com.prismgram.chats.ChatListUiState
+import com.prismgram.chats.FolderTab
+import com.prismgram.chats.formatTimestamp
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import java.io.File
+import kotlin.math.abs
+
+@Composable
+fun ChatListScreen(
+    state: ChatListUiState,
+    folders: List<FolderTab>,
+    selectedFolderId: Int,
+    myAvatarPath: String?,
+    onOpenProfile: () -> Unit,
+    onSelectFolder: (Int) -> Unit,
+    onVisibleChatsChanged: (List<Long>) -> Unit,
+    onChatClick: (ChatListItem) -> Unit,
+) {
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        ChatListHeader(
+            myAvatarPath = myAvatarPath,
+            searchOpen = searchOpen,
+            query = query,
+            onQueryChange = { query = it },
+            onOpenSearch = { searchOpen = true },
+            onCloseSearch = {
+                searchOpen = false
+                query = ""
+            },
+            onOpenProfile = onOpenProfile,
+        )
+
+        // folder chips, hidden while searching or when there are none
+        AnimatedVisibility(
+            visible = folders.size > 1 && !searchOpen,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            FolderChips(
+                folders = folders,
+                selectedFolderId = selectedFolderId,
+                onSelectFolder = onSelectFolder,
+            )
+        }
+
+        when (state) {
+            is ChatListUiState.Loading -> LoadingChats()
+            is ChatListUiState.Empty -> NoChats()
+            is ChatListUiState.Ready -> {
+                val filtered = if (query.isBlank()) {
+                    state.chats
+                } else {
+                    state.chats.filter { it.title.contains(query, ignoreCase = true) }
+                }
+
+                // only avatars for whats on screen (+ some buffer) get downloaded
+                LaunchedEffect(listState, filtered) {
+                    snapshotFlow { listState.layoutInfo.visibleItemsInfo }
+                        .map { infos -> infos.map { it.index } }
+                        .distinctUntilChanged()
+                        .collect { visible ->
+                            if (visible.isEmpty()) return@collect
+                            val first = (visible.first() - 12).coerceAtLeast(0)
+                            val last = (visible.last() + 12).coerceAtMost(filtered.lastIndex)
+                            if (first <= last) {
+                                onVisibleChatsChanged(
+                                    filtered.subList(first, last + 1).map { it.id },
+                                )
+                            }
+                        }
+                }
+
+                if (filtered.isEmpty()) {
+                    NoChats("Nothing found for \"$query\"")
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(
+                            items = filtered,
+                            key = { it.id },
+                            contentType = { "chat" },
+                        ) { chat ->
+                            ChatRow(
+                                chat = chat,
+                                // fade specs off, rows fading in while scrolling is jank.
+                                // placement spring stays so reorders still glide
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = null,
+                                    fadeOutSpec = null,
+                                ),
+                                onClick = { onChatClick(chat) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatListHeader(
+    myAvatarPath: String?,
+    searchOpen: Boolean,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onOpenSearch: () -> Unit,
+    onCloseSearch: () -> Unit,
+    onOpenProfile: () -> Unit,
+) {
+    // the search field grows out of the icon, the weight does the expanding
+    val fieldWeight by animateFloatAsState(
+        targetValue = if (searchOpen) 1f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "searchField",
+    )
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(searchOpen) {
+        if (searchOpen) focusRequester.requestFocus()
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AnimatedVisibility(
+            visible = searchOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            IconButton(onClick = onCloseSearch) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search")
+            }
+        }
+
+        AnimatedVisibility(
+            visible = !searchOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Text(
+                text = "PrismGram",
+                style = MaterialTheme.typography.headlineSmall,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 12.dp),
+            )
+        }
+
+        Spacer(Modifier.weight((1f - fieldWeight).coerceAtLeast(0.001f)))
+
+        if (fieldWeight > 0.01f) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text("Search") },
+                singleLine = true,
+                shape = CircleShape,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                modifier = Modifier
+                    .weight(fieldWeight)
+                    .padding(start = 4.dp)
+                    .focusRequester(focusRequester),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = !searchOpen,
+            enter = fadeIn() + slideInHorizontally { it / 3 },
+            exit = fadeOut() + slideOutHorizontally { it / 3 },
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onOpenSearch) {
+                    Icon(Icons.Filled.Search, contentDescription = "Search")
+                }
+                AvatarButton(myAvatarPath, onOpenProfile)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvatarButton(myAvatarPath: String?, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (myAvatarPath != null) {
+            AsyncImage(
+                model = File(myAvatarPath),
+                contentDescription = "My profile",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Filled.Person,
+                contentDescription = "My profile",
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FolderChips(
+    folders: List<FolderTab>,
+    selectedFolderId: Int,
+    onSelectFolder: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .horizontalScroll(rememberScrollState()),
+    ) {
+        Spacer(Modifier.width(16.dp))
+
+        folders.forEach { folder ->
+            val isSelected = folder.folderId == selectedFolderId
+
+            FilterChip(
+                selected = isSelected,
+                onClick = { onSelectFolder(folder.folderId) },
+                label = {
+                    Text(
+                        text = folder.title,
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                },
+                leadingIcon = {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(FilterChipDefaults.IconSize),
+                        )
+                    } else if (folder.icon != null) {
+                        Text(folder.icon, fontSize = 14.sp)
+                    }
+                },
+                shape = RoundedCornerShape(16.dp),
+                border = null,
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
+            )
+
+            Spacer(Modifier.width(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun ChatRow(chat: ChatListItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChatAvatar(chat)
+
+        Spacer(Modifier.width(14.dp))
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = chat.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (chat.unreadCount > 0) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (chat.lastMessageDate != null) {
+                    Text(
+                        text = formatTimestamp(chat.lastMessageDate),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (chat.isMuted) {
+                            MaterialTheme.colorScheme.outline
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = chat.lastMessagePreview,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (chat.unreadCount > 0) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (chat.unreadCount > 0) {
+                    UnreadBadge(chat.unreadCount, chat.isMuted)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatAvatar(chat: ChatListItem) {
+    val color = avatarColor(chat.id)
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .clip(CircleShape)
+            .background(color),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (chat.photoPath != null) {
+            AsyncImage(
+                model = File(chat.photoPath),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(
+                text = chat.title.take(1).uppercase(),
+                style = MaterialTheme.typography.titleLarge,
+                color = androidx.compose.ui.graphics.Color.White,
+            )
+        }
+    }
+}
+
+@Composable
+private fun UnreadBadge(count: Int, muted: Boolean) {
+    // grey for silenced chats, colored otherwise, like telegram does it
+    val background = if (muted) {
+        MaterialTheme.colorScheme.surfaceContainerHighest
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    val textColor = if (muted) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        MaterialTheme.colorScheme.onPrimary
+    }
+
+    AnimatedContent(
+        targetState = count,
+        transitionSpec = {
+            (scaleIn(initialScale = 0.6f) + fadeIn()) togetherWith
+                (scaleOut(targetScale = 0.6f) + fadeOut())
+        },
+        label = "unread",
+    ) { value ->
+        Box(
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(background)
+                .padding(horizontal = 7.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            // exact number, even if its huge
+            Text(
+                text = value.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = textColor,
+            )
+        }
+    }
+}
+
+// same chat always gets the same color
+@Composable
+private fun avatarColor(chatId: Long): androidx.compose.ui.graphics.Color {
+    val palette = listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.tertiary,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.error,
+    )
+    return palette[(abs(chatId) % palette.size).toInt()]
+}
+
+@Composable
+private fun LoadingChats() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "Loading chats…",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun NoChats(message: String = "No chats yet") {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\chats\ChatListViewModel.kt
+==================================================
+
+package com.prismgram.ui.chats
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import com.prismgram.chats.ChatListRepository
+import com.prismgram.chats.ChatListUiState
+import com.prismgram.chats.FolderTab
+import kotlinx.coroutines.flow.StateFlow
+
+class ChatListViewModel(private val repository: ChatListRepository) : ViewModel() {
+
+    val state: StateFlow<ChatListUiState> = repository.state
+    val folders: StateFlow<List<FolderTab>> = repository.folders
+    val selectedFolderId: StateFlow<Int> = repository.selectedFolderId
+
+    init {
+        repository.start()
+    }
+
+    fun selectFolder(folderId: Int) = repository.selectFolder(folderId)
+
+    fun requestPhotos(chatIds: List<Long>) = repository.requestPhotos(chatIds)
+
+    companion object {
+        fun factory(repository: ChatListRepository): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    ChatListViewModel(repository) as T
+            }
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\common\Common.kt
+==================================================
+
+package com.prismgram.ui.common
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LoadingScreen(message: String) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            CircularProgressIndicator()
+            Spacer(Modifier.height(16.dp))
+            Text(message, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+
+@Composable
+fun ErrorPanel(message: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+// the big round button, swaps its label for a spinner when busy
+@Composable
+fun PrimaryButton(
+    text: String,
+    busy: Boolean,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    onClick: () -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled && !busy,
+        shape = CircleShape,
+        modifier = modifier.height(56.dp),
+    ) {
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+        } else {
+            Text(text, style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+
+==================================================
+FILE: app\src\main\java\com\prismgram\ui\theme\Theme.kt
+==================================================
+
+package com.prismgram.ui.theme
+
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.prismgram.R
+
+// brand color
+val BrandCoral = Color(0xFFED5564)
+
+val Poppins = FontFamily(
+    Font(R.font.poppins_regular, FontWeight.Normal),
+    Font(R.font.poppins_medium, FontWeight.Medium),
+    Font(R.font.poppins_semibold, FontWeight.SemiBold),
+    Font(R.font.poppins_bold, FontWeight.Bold),
+)
+
+// everything is round
+private val AppShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(32.dp),
+)
+
+private fun typographyFor(family: FontFamily) = Typography(
+    displayLarge = TextStyle(fontFamily = family, fontWeight = FontWeight.Normal, fontSize = 57.sp, lineHeight = 64.sp),
+    displayMedium = TextStyle(fontFamily = family, fontWeight = FontWeight.Normal, fontSize = 45.sp, lineHeight = 52.sp),
+    displaySmall = TextStyle(fontFamily = family, fontWeight = FontWeight.Normal, fontSize = 36.sp, lineHeight = 44.sp),
+    headlineLarge = TextStyle(fontFamily = family, fontWeight = FontWeight.SemiBold, fontSize = 32.sp, lineHeight = 40.sp),
+    headlineMedium = TextStyle(fontFamily = family, fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 36.sp),
+    headlineSmall = TextStyle(fontFamily = family, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 32.sp),
+    titleLarge = TextStyle(fontFamily = family, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
+    titleMedium = TextStyle(fontFamily = family, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.15.sp),
+    titleSmall = TextStyle(fontFamily = family, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.1.sp),
+    bodyLarge = TextStyle(fontFamily = family, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.5.sp),
+    bodyMedium = TextStyle(fontFamily = family, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.25.sp),
+    bodySmall = TextStyle(fontFamily = family, fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp),
+    labelLarge = TextStyle(fontFamily = family, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.1.sp),
+    labelMedium = TextStyle(fontFamily = family, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.5.sp),
+    labelSmall = TextStyle(fontFamily = family, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 0.5.sp),
+)
+
+private val AppTypography = typographyFor(Poppins)
+
+private val LightColors = lightColorScheme(
+    primary = Color(0xFFB3243B),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFFFDADD),
+    onPrimaryContainer = Color(0xFF400009),
+    secondary = Color(0xFF765659),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFFFDADD),
+    onSecondaryContainer = Color(0xFF2C1517),
+    tertiary = Color(0xFF6C5577),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFF4D8FF),
+    onTertiaryContainer = Color(0xFF27132F),
+    background = Color(0xFFFFF8F7),
+    onBackground = Color(0xFF23191A),
+    surface = Color(0xFFFFF8F7),
+    onSurface = Color(0xFF23191A),
+    surfaceVariant = Color(0xFFD8C2C4),
+    onSurfaceVariant = Color(0xFF524345),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFFFF0F0),
+    surfaceContainer = Color(0xFFFCEAEC),
+    surfaceContainerHigh = Color(0xFFF6E3E5),
+    surfaceContainerHighest = Color(0xFFF0DEE0),
+    outline = Color(0xFF847375),
+    outlineVariant = Color(0xFFD8C2C4),
+    error = Color(0xFFBA1A1A),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
+)
+
+private val DarkColors = darkColorScheme(
+    primary = Color(0xFFFFB1BA),
+    onPrimary = Color(0xFF5F1120),
+    primaryContainer = Color(0xFF9E2A3A),
+    onPrimaryContainer = Color(0xFFFFDADD),
+    secondary = Color(0xFFE7BDC1),
+    onSecondary = Color(0xFF442A2C),
+    secondaryContainer = Color(0xFF5C4043),
+    onSecondaryContainer = Color(0xFFFFDADD),
+    tertiary = Color(0xFFD9BDE4),
+    onTertiary = Color(0xFF3D2846),
+    tertiaryContainer = Color(0xFF543E5E),
+    onTertiaryContainer = Color(0xFFF4D8FF),
+    background = Color(0xFF191113),
+    onBackground = Color(0xFFF0DEE0),
+    surface = Color(0xFF191113),
+    onSurface = Color(0xFFF0DEE0),
+    surfaceVariant = Color(0xFF524345),
+    onSurfaceVariant = Color(0xFFD6C2C4),
+    surfaceContainerLowest = Color(0xFF120B0D),
+    surfaceContainerLow = Color(0xFF21181A),
+    surfaceContainer = Color(0xFF251C1E),
+    surfaceContainerHigh = Color(0xFF302628),
+    surfaceContainerHighest = Color(0xFF3B3033),
+    outline = Color(0xFF9E8C8E),
+    outlineVariant = Color(0xFF524345),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+)
+
+// coral by default, can also follow the wallpaper on android 12+
+@Composable
+fun PrismGramTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> DarkColors
+        else -> LightColors
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = AppTypography,
+        shapes = AppShapes,
+        content = content,
+    )
+}
+
+
+==================================================
+FILE: app\src\main\java\org\drinkless\tdlib\Client.java
+==================================================
+
+//
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+package org.drinkless.tdlib;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * Main class for interaction with the TDLib.
+ */
+public final class Client {
+    static {
+        try {
+            System.loadLibrary("tdjni");
+        } catch (UnsatisfiedLinkError e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Interface for handler for results of queries to TDLib and incoming updates from TDLib.
+     */
+    public interface ResultHandler {
+        /**
+         * Callback called on result of query to TDLib or incoming update from TDLib.
+         *
+         * @param object Result of query or update of type TdApi.Update about new events.
+         */
+        void onResult(TdApi.Object object);
+    }
+
+    /**
+     * Interface for handler of exceptions thrown while invoking ResultHandler.
+     * By default, all such exceptions are ignored.
+     * All exceptions thrown from ExceptionHandler are ignored.
+     */
+    public interface ExceptionHandler {
+        /**
+         * Callback called on exceptions thrown while invoking ResultHandler.
+         *
+         * @param e Exception thrown by ResultHandler.
+         */
+        void onException(Throwable e);
+    }
+
+    /**
+     * Interface for handler of messages that are added to the internal TDLib log.
+     */
+    public interface LogMessageHandler {
+        /**
+         * Callback called on messages that are added to the internal TDLib log.
+         *
+         * @param verbosityLevel Log verbosity level with which the message was added from -1 up to 1024.
+         *                       If 0, then TDLib will crash as soon as the callback returns.
+         *                       None of the TDLib methods can be called from the callback.
+         * @param message        The message added to the internal TDLib log.
+         */
+        void onLogMessage(int verbosityLevel, String message);
+    }
+
+    /**
+     * Exception class thrown when TDLib error occurred while performing {@link #execute(TdApi.Function)}.
+     */
+    public static class ExecutionException extends Exception {
+        /**
+         * Original TDLib error occurred when performing one of the synchronous functions.
+         */
+        public final TdApi.Error error;
+
+        /**
+         * @param error TDLib error occurred while performing {@link #execute(TdApi.Function)}.
+         */
+        ExecutionException (TdApi.Error error) {
+            super(error.code + ": " + error.message);
+            this.error = error;
+        }
+    }
+
+    /**
+     * Sends a request to the TDLib.
+     *
+     * @param query            Object representing a query to the TDLib.
+     * @param resultHandler    Result handler with onResult method which will be called with result
+     *                         of the query or with TdApi.Error as parameter. If it is null, nothing
+     *                         will be called.
+     * @param exceptionHandler Exception handler with onException method which will be called on
+     *                         exception thrown from resultHandler. If it is null, then
+     *                         defaultExceptionHandler will be called.
+     */
+    public void send(TdApi.Function query, ResultHandler resultHandler, ExceptionHandler exceptionHandler) {
+        long queryId = currentQueryId.incrementAndGet();
+        if (resultHandler != null) {
+            handlers.put(queryId, new Handler(resultHandler, exceptionHandler));
+        }
+        nativeClientSend(nativeClientId, queryId, query);
+    }
+
+    /**
+     * Sends a request to the TDLib with an empty ExceptionHandler.
+     *
+     * @param query         Object representing a query to the TDLib.
+     * @param resultHandler Result handler with onResult method which will be called with result
+     *                      of the query or with TdApi.Error as parameter. If it is null, then
+     *                      defaultExceptionHandler will be called.
+     */
+    public void send(TdApi.Function query, ResultHandler resultHandler) {
+        send(query, resultHandler, null);
+    }
+
+    /**
+     * Synchronously executes a TDLib request. Only a few marked accordingly requests can be executed synchronously.
+     *
+     * @param query Object representing a query to the TDLib.
+     * @param <T> Automatically deduced return type of the query.
+     * @return request result.
+     * @throws ExecutionException if query execution fails.
+     */
+    @SuppressWarnings("unchecked")
+    public static <T extends TdApi.Object> T execute(TdApi.Function<T> query) throws ExecutionException {
+        TdApi.Object object = nativeClientExecute(query);
+        if (object instanceof TdApi.Error) {
+            throw new ExecutionException((TdApi.Error) object);
+        }
+        return (T) object;
+    }
+
+    /**
+     * Creates new Client.
+     *
+     * @param updateHandler           Handler for incoming updates.
+     * @param updateExceptionHandler  Handler for exceptions thrown from updateHandler. If it is null, exceptions will be ignored.
+     * @param defaultExceptionHandler Default handler for exceptions thrown from all ResultHandler. If it is null, exceptions will be ignored.
+     * @return created Client
+     */
+    public static Client create(ResultHandler updateHandler, ExceptionHandler updateExceptionHandler, ExceptionHandler defaultExceptionHandler) {
+        Client client = new Client(updateHandler, updateExceptionHandler, defaultExceptionHandler);
+        synchronized (responseReceiver) {
+            if (!responseReceiver.isRun) {
+                responseReceiver.isRun = true;
+
+                Thread receiverThread = new Thread(responseReceiver, "TDLib thread");
+                receiverThread.setDaemon(true);
+                receiverThread.start();
+            }
+        }
+        return client;
+    }
+
+    /**
+     * Sets the handler for messages that are added to the internal TDLib log.
+     * None of the TDLib methods can be called from the callback.
+     *
+     * @param maxVerbosityLevel The maximum verbosity level of messages for which the callback will be called.
+     * @param logMessageHandler Handler for messages that are added to the internal TDLib log. Pass null to remove the handler.
+     */
+    public static void setLogMessageHandler(int maxVerbosityLevel, Client.LogMessageHandler logMessageHandler) {
+        nativeClientSetLogMessageHandler(maxVerbosityLevel, logMessageHandler);
+    }
+
+    private static class ResponseReceiver implements Runnable {
+        public boolean isRun = false;
+
+        @Override
+        public void run() {
+            while (true) {
+                int resultN = nativeClientReceive(clientIds, eventIds, events, 100000.0 /*seconds*/);
+                for (int i = 0; i < resultN; i++) {
+                    processResult(clientIds[i], eventIds[i], events[i]);
+                    events[i] = null;
+                }
+            }
+        }
+
+        private void processResult(int clientId, long id, TdApi.Object object) {
+            boolean isClosed = false;
+            if (id == 0 && object instanceof TdApi.UpdateAuthorizationState) {
+                TdApi.AuthorizationState authorizationState = ((TdApi.UpdateAuthorizationState) object).authorizationState;
+                if (authorizationState instanceof TdApi.AuthorizationStateClosed) {
+                    isClosed = true;
+                }
+            }
+
+            Handler handler = id == 0 ? updateHandlers.get(clientId) : handlers.remove(id);
+            if (handler != null) {
+                try {
+                    handler.resultHandler.onResult(object);
+                } catch (Throwable cause) {
+                    ExceptionHandler exceptionHandler = handler.exceptionHandler;
+                    if (exceptionHandler == null) {
+                        exceptionHandler = defaultExceptionHandlers.get(clientId);
+                    }
+                    if (exceptionHandler != null) {
+                        try {
+                            exceptionHandler.onException(cause);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                }
+            }
+
+            if (isClosed) {
+                updateHandlers.remove(clientId);           // there will be no more updates
+                defaultExceptionHandlers.remove(clientId); // ignore further exceptions
+                clientCount.decrementAndGet();
+            }
+        }
+
+        private static final int MAX_EVENTS = 1000;
+        private final int[] clientIds = new int[MAX_EVENTS];
+        private final long[] eventIds = new long[MAX_EVENTS];
+        private final TdApi.Object[] events = new TdApi.Object[MAX_EVENTS];
+    }
+
+    private final int nativeClientId;
+
+    private static final ConcurrentHashMap<Integer, ExceptionHandler> defaultExceptionHandlers = new ConcurrentHashMap<Integer, ExceptionHandler>();
+    private static final ConcurrentHashMap<Integer, Handler> updateHandlers = new ConcurrentHashMap<Integer, Handler>();
+    private static final ConcurrentHashMap<Long, Handler> handlers = new ConcurrentHashMap<Long, Handler>();
+    private static final AtomicLong currentQueryId = new AtomicLong();
+    private static final AtomicLong clientCount = new AtomicLong();
+
+    private static final ResponseReceiver responseReceiver = new ResponseReceiver();
+
+    private static class Handler {
+        final ResultHandler resultHandler;
+        final ExceptionHandler exceptionHandler;
+
+        Handler(ResultHandler resultHandler, ExceptionHandler exceptionHandler) {
+            this.resultHandler = resultHandler;
+            this.exceptionHandler = exceptionHandler;
+        }
+    }
+
+    private Client(ResultHandler updateHandler, ExceptionHandler updateExceptionHandler, ExceptionHandler defaultExceptionHandler) {
+        clientCount.incrementAndGet();
+        nativeClientId = createNativeClient();
+        if (updateHandler != null) {
+            updateHandlers.put(nativeClientId, new Handler(updateHandler, updateExceptionHandler));
+        }
+        if (defaultExceptionHandler != null) {
+            defaultExceptionHandlers.put(nativeClientId, defaultExceptionHandler);
+        }
+        send(new TdApi.GetOption("version"), null, null);
+    }
+
+    private static native int createNativeClient();
+
+    private static native void nativeClientSend(int nativeClientId, long eventId, TdApi.Function function);
+
+    private static native int nativeClientReceive(int[] clientIds, long[] eventIds, TdApi.Object[] events, double timeout);
+
+    private static native TdApi.Object nativeClientExecute(TdApi.Function function);
+
+    private static native void nativeClientSetLogMessageHandler(int maxVerbosityLevel, LogMessageHandler logMessageHandler);
+}
+
+
+==================================================
+FILE: app\src\main\res\drawable\ic_launcher.xml
+==================================================
+
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#ED5564"
+        android:pathData="M0,0h108v108h-108z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,22 L86,84 L22,84 Z" />
+    <path
+        android:fillColor="#FFDADD"
+        android:pathData="M54,44 L69,73 L39,73 Z" />
+</vector>
+
+
+==================================================
+FILE: app\src\main\res\values\strings.xml
+==================================================
+
+<resources>
+    <string name="app_name">PrismGram</string>
+</resources>
+
+
+==================================================
+FILE: app\src\main\res\values\themes.xml
+==================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PrismGram" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
+
+
+==================================================
+FILE: app\src\main\res\values-night\themes.xml
+==================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PrismGram" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/background_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
+
+

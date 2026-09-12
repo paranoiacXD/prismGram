@@ -11,10 +11,11 @@ data class ChatListItem(
     val title: String,
     val photoPath: String?,
     val lastMessagePreview: String,
-    val lastMessageDate: Long?,
+    val formattedDate: String?,
     val unreadCount: Int,
     val isPinned: Boolean,
     val isMuted: Boolean,
+    val isSavedMessages: Boolean,
     val order: Long,
 )
 
@@ -52,7 +53,7 @@ fun messagePreview(content: TdApi.MessageContent?): String {
 }
 
 // these are stupidly expensive to create, making a fresh one per row per frame
-// was the main reason scrolling tanked to like 13fps
+// was one reason scrolling tanked
 private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val monthFormatter = DateTimeFormatter.ofPattern("d MMM")
 private val oldFormatter = DateTimeFormatter.ofPattern("d.MM.yy")

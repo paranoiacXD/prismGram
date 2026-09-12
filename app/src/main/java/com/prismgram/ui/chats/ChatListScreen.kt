@@ -1,6 +1,5 @@
 package com.prismgram.ui.chats
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -8,12 +7,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -36,7 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -59,19 +55,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.prismgram.R
 import com.prismgram.chats.ChatListItem
 import com.prismgram.chats.ChatListUiState
 import com.prismgram.chats.FolderTab
-import com.prismgram.chats.formatTimestamp
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import java.io.File
 import kotlin.math.abs
 
 @Composable
@@ -79,8 +74,7 @@ fun ChatListScreen(
     state: ChatListUiState,
     folders: List<FolderTab>,
     selectedFolderId: Int,
-    myAvatarPath: String?,
-    onOpenProfile: () -> Unit,
+    onOpenMenu: () -> Unit,
     onSelectFolder: (Int) -> Unit,
     onVisibleChatsChanged: (List<Long>) -> Unit,
     onChatClick: (ChatListItem) -> Unit,
@@ -93,16 +87,15 @@ fun ChatListScreen(
         modifier = Modifier.fillMaxSize(),
     ) {
         ChatListHeader(
-            myAvatarPath = myAvatarPath,
             searchOpen = searchOpen,
             query = query,
             onQueryChange = { query = it },
+            onOpenMenu = onOpenMenu,
             onOpenSearch = { searchOpen = true },
             onCloseSearch = {
                 searchOpen = false
                 query = ""
             },
-            onOpenProfile = onOpenProfile,
         )
 
         // folder chips, hidden while searching or when there are none
@@ -122,25 +115,29 @@ fun ChatListScreen(
             is ChatListUiState.Loading -> LoadingChats()
             is ChatListUiState.Empty -> NoChats()
             is ChatListUiState.Ready -> {
-                val filtered = if (query.isBlank()) {
-                    state.chats
-                } else {
-                    state.chats.filter { it.title.contains(query, ignoreCase = true) }
+                val chats = state.chats
+                // dont rebuild the filtered list on every recomposition
+                val filtered = remember(chats, query) {
+                    if (query.isBlank()) {
+                        chats
+                    } else {
+                        chats.filter { it.title.contains(query, ignoreCase = true) }
+                    }
                 }
 
-                // only avatars for whats on screen (+ some buffer) get downloaded
+                // only react when the index range changes, not every frame.
+                // the actual download work happens off the main thread in the repo
                 LaunchedEffect(listState, filtered) {
-                    snapshotFlow { listState.layoutInfo.visibleItemsInfo }
-                        .map { infos -> infos.map { it.index } }
+                    snapshotFlow {
+                        listState.firstVisibleItemIndex to
+                            (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0)
+                    }
                         .distinctUntilChanged()
-                        .collect { visible ->
-                            if (visible.isEmpty()) return@collect
-                            val first = (visible.first() - 12).coerceAtLeast(0)
-                            val last = (visible.last() + 12).coerceAtMost(filtered.lastIndex)
+                        .collect { (firstIndex, lastIndex) ->
+                            val first = (firstIndex - 12).coerceAtLeast(0)
+                            val last = (lastIndex + 12).coerceAtMost(filtered.lastIndex)
                             if (first <= last) {
-                                onVisibleChatsChanged(
-                                    filtered.subList(first, last + 1).map { it.id },
-                                )
+                                onVisibleChatsChanged(filtered.subList(first, last + 1).map { it.id })
                             }
                         }
                 }
@@ -157,16 +154,7 @@ fun ChatListScreen(
                             key = { it.id },
                             contentType = { "chat" },
                         ) { chat ->
-                            ChatRow(
-                                chat = chat,
-                                // fade specs off, rows fading in while scrolling is jank.
-                                // placement spring stays so reorders still glide
-                                modifier = Modifier.animateItem(
-                                    fadeInSpec = null,
-                                    fadeOutSpec = null,
-                                ),
-                                onClick = { onChatClick(chat) },
-                            )
+                            ChatRow(chat = chat, onClick = { onChatClick(chat) })
                         }
                     }
                 }
@@ -177,13 +165,12 @@ fun ChatListScreen(
 
 @Composable
 private fun ChatListHeader(
-    myAvatarPath: String?,
     searchOpen: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
+    onOpenMenu: () -> Unit,
     onOpenSearch: () -> Unit,
     onCloseSearch: () -> Unit,
-    onOpenProfile: () -> Unit,
 ) {
     // the search field grows out of the icon, the weight does the expanding
     val fieldWeight by animateFloatAsState(
@@ -192,10 +179,6 @@ private fun ChatListHeader(
         label = "searchField",
     )
     val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(searchOpen) {
-        if (searchOpen) focusRequester.requestFocus()
-    }
 
     Row(
         modifier = Modifier
@@ -218,12 +201,16 @@ private fun ChatListHeader(
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
-            Text(
-                text = "PrismGram",
-                style = MaterialTheme.typography.headlineSmall,
-                maxLines = 1,
-                modifier = Modifier.padding(start = 12.dp),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onOpenMenu) {
+                    Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                }
+                Text(
+                    text = "PrismGram",
+                    style = MaterialTheme.typography.headlineSmall,
+                    maxLines = 1,
+                )
+            }
         }
 
         Spacer(Modifier.weight((1f - fieldWeight).coerceAtLeast(0.001f)))
@@ -241,6 +228,11 @@ private fun ChatListHeader(
                     .padding(start = 4.dp)
                     .focusRequester(focusRequester),
             )
+            // request focus only once the field is actually in the tree, asking
+            // earlier is what crashed the app
+            LaunchedEffect(Unit) {
+                runCatching { focusRequester.requestFocus() }
+            }
         }
 
         AnimatedVisibility(
@@ -248,40 +240,9 @@ private fun ChatListHeader(
             enter = fadeIn() + slideInHorizontally { it / 3 },
             exit = fadeOut() + slideOutHorizontally { it / 3 },
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onOpenSearch) {
-                    Icon(Icons.Filled.Search, contentDescription = "Search")
-                }
-                AvatarButton(myAvatarPath, onOpenProfile)
+            IconButton(onClick = onOpenSearch) {
+                Icon(Icons.Filled.Search, contentDescription = "Search")
             }
-        }
-    }
-}
-
-@Composable
-private fun AvatarButton(myAvatarPath: String?, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(42.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (myAvatarPath != null) {
-            AsyncImage(
-                model = File(myAvatarPath),
-                contentDescription = "My profile",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Filled.Person,
-                contentDescription = "My profile",
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(24.dp),
-            )
         }
     }
 }
@@ -336,9 +297,9 @@ private fun FolderChips(
 }
 
 @Composable
-private fun ChatRow(chat: ChatListItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun ChatRow(chat: ChatListItem, onClick: () -> Unit) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -361,15 +322,26 @@ private fun ChatRow(chat: ChatListItem, modifier: Modifier = Modifier, onClick: 
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (chat.lastMessageDate != null) {
+                if (chat.isPinned) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_pin),
+                        contentDescription = "Pinned",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .size(14.dp),
+                    )
+                }
+                if (chat.formattedDate != null) {
                     Text(
-                        text = formatTimestamp(chat.lastMessageDate),
+                        text = chat.formattedDate,
                         style = MaterialTheme.typography.labelMedium,
                         color = if (chat.isMuted) {
                             MaterialTheme.colorScheme.outline
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
+                        modifier = Modifier.padding(start = 4.dp),
                     )
                 }
             }
@@ -397,23 +369,32 @@ private fun ChatRow(chat: ChatListItem, modifier: Modifier = Modifier, onClick: 
 
 @Composable
 private fun ChatAvatar(chat: ChatListItem) {
-    val color = avatarColor(chat.id)
+    val background = when {
+        chat.isSavedMessages -> MaterialTheme.colorScheme.secondaryContainer
+        else -> avatarColor(chat.id)
+    }
+
     Box(
         modifier = Modifier
             .size(56.dp)
             .clip(CircleShape)
-            .background(color),
+            .background(background),
         contentAlignment = Alignment.Center,
     ) {
-        if (chat.photoPath != null) {
-            AsyncImage(
-                model = File(chat.photoPath),
+        when {
+            chat.isSavedMessages -> Icon(
+                painter = painterResource(R.drawable.ic_bookmark),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(26.dp),
+            )
+            chat.photoPath != null -> AsyncImage(
+                model = chat.photoPath,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else {
-            Text(
+            else -> Text(
                 text = chat.title.take(1).uppercase(),
                 style = MaterialTheme.typography.titleLarge,
                 color = androidx.compose.ui.graphics.Color.White,
@@ -424,7 +405,8 @@ private fun ChatAvatar(chat: ChatListItem) {
 
 @Composable
 private fun UnreadBadge(count: Int, muted: Boolean) {
-    // grey for silenced chats, colored otherwise, like telegram does it
+    // grey for silenced chats, colored otherwise, like telegram does it.
+    // plain box, no animation, transitions in recycled rows tank the fps
     val background = if (muted) {
         MaterialTheme.colorScheme.surfaceContainerHighest
     } else {
@@ -436,28 +418,19 @@ private fun UnreadBadge(count: Int, muted: Boolean) {
         MaterialTheme.colorScheme.onPrimary
     }
 
-    AnimatedContent(
-        targetState = count,
-        transitionSpec = {
-            (scaleIn(initialScale = 0.6f) + fadeIn()) togetherWith
-                (scaleOut(targetScale = 0.6f) + fadeOut())
-        },
-        label = "unread",
-    ) { value ->
-        Box(
-            modifier = Modifier
-                .clip(CircleShape)
-                .background(background)
-                .padding(horizontal = 7.dp, vertical = 2.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            // exact number, even if its huge
-            Text(
-                text = value.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = textColor,
-            )
-        }
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(background)
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        // exact number, even if its huge
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = textColor,
+        )
     }
 }
 

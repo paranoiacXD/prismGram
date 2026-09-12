@@ -36,9 +36,21 @@ android {
         )
     }
 
+    lint {
+        // agp 8.7 chokes on the android-37.1 platform ("For input string: 37.1"),
+        // not worth blocking release builds over lint anyway
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // debug builds run compose/kotlin completely unoptimized, which is a
+            // big part of the jank. minify + shrink gives the real performance
+            isMinifyEnabled = true
+            isShrinkResources = true
+            // signed with the debug key so it can update the installed app
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
