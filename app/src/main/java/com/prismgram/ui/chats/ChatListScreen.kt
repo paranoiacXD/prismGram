@@ -1,15 +1,16 @@
 package com.prismgram.ui.chats
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -54,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -172,50 +174,82 @@ private fun ChatListHeader(
     onOpenSearch: () -> Unit,
     onCloseSearch: () -> Unit,
 ) {
-    // the search field grows out of the icon, the weight does the expanding
-    val fieldWeight by animateFloatAsState(
-        targetValue = if (searchOpen) 1f else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "searchField",
-    )
-    val focusRequester = remember { FocusRequester() }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+            .padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AnimatedVisibility(
-            visible = searchOpen,
-            enter = fadeIn(),
-            exit = fadeOut(),
-        ) {
-            IconButton(onClick = onCloseSearch) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search")
+        // menu on the left, becomes a back arrow while searching
+        AnimatedContent(
+            targetState = searchOpen,
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "leftIcon",
+        ) { open ->
+            IconButton(onClick = { if (open) onCloseSearch() else onOpenMenu() }) {
+                Icon(
+                    imageVector = if (open) {
+                        Icons.AutoMirrored.Filled.ArrowBack
+                    } else {
+                        Icons.Filled.Menu
+                    },
+                    contentDescription = if (open) "Close search" else "Menu",
+                )
             }
         }
+
+        // title and field share one slot so the layout never jumps
+        ChatListHeaderCenter(
+            searchOpen = searchOpen,
+            query = query,
+            onQueryChange = onQueryChange,
+            modifier = Modifier.weight(1f),
+        )
 
         AnimatedVisibility(
             visible = !searchOpen,
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onOpenMenu) {
-                    Icon(Icons.Filled.Menu, contentDescription = "Menu")
-                }
-                Text(
-                    text = "PrismGram",
-                    style = MaterialTheme.typography.headlineSmall,
-                    maxLines = 1,
-                )
+            IconButton(onClick = onOpenSearch) {
+                Icon(Icons.Filled.Search, contentDescription = "Search")
             }
         }
+    }
+}
 
-        Spacer(Modifier.weight((1f - fieldWeight).coerceAtLeast(0.001f)))
+@Composable
+private fun ChatListHeaderCenter(
+    searchOpen: Boolean,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val focusRequester = remember { FocusRequester() }
 
-        if (fieldWeight > 0.01f) {
+    Box(modifier = modifier) {
+        AnimatedVisibility(
+            visible = !searchOpen,
+            enter = fadeIn(),
+            exit = fadeOut() + slideOutHorizontally { -it / 4 },
+        ) {
+            Text(
+                text = "PrismGram",
+                style = MaterialTheme.typography.headlineSmall,
+                maxLines = 1,
+            )
+        }
+
+        AnimatedVisibility(
+            visible = searchOpen,
+            // grows out of the search icon on the right
+            enter = fadeIn() +
+                scaleIn(initialScale = 0.7f, transformOrigin = TransformOrigin(1f, 0.5f)) +
+                slideInHorizontally { it / 3 },
+            exit = fadeOut() +
+                scaleOut(targetScale = 0.7f, transformOrigin = TransformOrigin(1f, 0.5f)) +
+                slideOutHorizontally { it / 3 },
+        ) {
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
@@ -224,24 +258,13 @@ private fun ChatListHeader(
                 shape = CircleShape,
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 modifier = Modifier
-                    .weight(fieldWeight)
-                    .padding(start = 4.dp)
+                    .fillMaxWidth()
                     .focusRequester(focusRequester),
             )
-            // request focus only once the field is actually in the tree, asking
-            // earlier is what crashed the app
+            // request focus once the field is actually in the tree,
+            // asking earlier is what crashed the app
             LaunchedEffect(Unit) {
                 runCatching { focusRequester.requestFocus() }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = !searchOpen,
-            enter = fadeIn() + slideInHorizontally { it / 3 },
-            exit = fadeOut() + slideOutHorizontally { it / 3 },
-        ) {
-            IconButton(onClick = onOpenSearch) {
-                Icon(Icons.Filled.Search, contentDescription = "Search")
             }
         }
     }

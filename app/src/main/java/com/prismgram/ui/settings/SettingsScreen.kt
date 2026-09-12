@@ -83,13 +83,6 @@ fun SettingsScreen(
             title = "Account",
             items = listOf(
                 SettingsItem(
-                    title = "My account",
-                    subtitle = info?.username?.let { "@$it" },
-                    icon = Icons.Filled.Person,
-                    accentColor = MaterialTheme.colorScheme.primary,
-                    onClick = onOpenProfile,
-                ),
-                SettingsItem(
                     title = "Sign out",
                     subtitle = "Log out of PrismGram",
                     icon = Icons.AutoMirrored.Filled.ExitToApp,

@@ -1,5 +1,6 @@
 package com.prismgram.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -7,6 +8,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,17 +19,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -37,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,7 +50,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.prismgram.account.AccountInfo
@@ -81,6 +91,18 @@ fun PrismGramRoot(
 
     var showPhoneEntry by remember { mutableStateOf(false) }
     var screen by remember { mutableStateOf(MainScreen.Chats) }
+    val backStack = remember { mutableStateListOf<MainScreen>() }
+
+    // real back stack so < returns to where you actually came from
+    val navigate: (MainScreen) -> Unit = { target ->
+        if (target != screen) {
+            backStack.add(screen)
+            screen = target
+        }
+    }
+    val goBack: () -> Unit = {
+        screen = backStack.removeLastOrNull() ?: MainScreen.Chats
+    }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -89,11 +111,13 @@ fun PrismGramRoot(
         when (authState) {
             is AuthState.Ready -> {
                 showPhoneEntry = false
+                backStack.clear()
                 screen = MainScreen.Chats
                 accountViewModel.load()
             }
             is AuthState.WaitPhoneNumber -> {
                 showPhoneEntry = false
+                backStack.clear()
                 screen = MainScreen.Chats
             }
             else -> Unit
@@ -104,6 +128,10 @@ fun PrismGramRoot(
         authViewModel.errors.collect { message ->
             snackbarHostState.showSnackbar(message)
         }
+    }
+
+    BackHandler(enabled = authState is AuthState.Ready && screen != MainScreen.Chats) {
+        goBack()
     }
 
     Scaffold(
@@ -124,11 +152,11 @@ fun PrismGramRoot(
                                 info = (accountState as? AccountUiState.Loaded)?.info,
                                 onProfile = {
                                     scope.launch { drawerState.close() }
-                                    screen = MainScreen.Profile
+                                    navigate(MainScreen.Profile)
                                 },
                                 onSettings = {
                                     scope.launch { drawerState.close() }
-                                    screen = MainScreen.Settings
+                                    navigate(MainScreen.Settings)
                                 },
                                 onSignOut = {
                                     scope.launch { drawerState.close() }
@@ -163,13 +191,13 @@ fun PrismGramRoot(
 
                                 MainScreen.Profile -> AccountScreen(
                                     state = accountState,
-                                    onBack = { screen = MainScreen.Chats },
+                                    onBack = goBack,
                                 ) { accountViewModel.signOut() }
 
                                 MainScreen.Settings -> SettingsScreen(
                                     info = (accountState as? AccountUiState.Loaded)?.info,
-                                    onBack = { screen = MainScreen.Chats },
-                                    onOpenProfile = { screen = MainScreen.Profile },
+                                    onBack = goBack,
+                                    onOpenProfile = { navigate(MainScreen.Profile) },
                                     onSignOut = { accountViewModel.signOut() },
                                 )
                             }
@@ -223,78 +251,144 @@ private fun AppDrawer(
     onSettings: () -> Unit,
     onSignOut: () -> Unit,
 ) {
-    ModalDrawerSheet {
-        Row(
+    ModalDrawerSheet(
+        drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 16.dp),
         ) {
-            Box(
+            // the account panel, tapping it opens the profile
+            Row(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .clickable(onClick = onProfile)
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (info?.photoPath != null) {
-                    AsyncImage(
-                        model = info.photoPath,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Filled.Person,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (info?.photoPath != null) {
+                        AsyncImage(
+                            model = info.photoPath,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
                 }
-            }
 
-            Spacer(Modifier.width(14.dp))
+                Spacer(Modifier.width(14.dp))
 
-            Column {
-                Text(
-                    text = info?.displayName ?: "PrismGram",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                )
-                if (!info?.username.isNullOrBlank()) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "@${info?.username}",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = info?.displayName ?: "PrismGram",
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = info?.username?.let { "@$it" } ?: "open profile",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                    modifier = Modifier.size(18.dp),
+                )
             }
+
+            Spacer(Modifier.height(20.dp))
+
+            Text(
+                text = "MENU",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 12.dp, bottom = 6.dp),
+            )
+
+            DrawerRow(
+                icon = Icons.Filled.Settings,
+                label = "Settings",
+                accent = MaterialTheme.colorScheme.primary,
+                onClick = onSettings,
+            )
+            DrawerRow(
+                icon = Icons.AutoMirrored.Filled.ExitToApp,
+                label = "Sign out",
+                accent = MaterialTheme.colorScheme.error,
+                onClick = onSignOut,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DrawerRow(
+    icon: ImageVector,
+    label: String,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(accent.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(20.dp),
+            )
         }
 
-        HorizontalDivider()
+        Spacer(Modifier.width(14.dp))
 
-        Spacer(Modifier.height(8.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f),
+        )
 
-        NavigationDrawerItem(
-            label = { Text("My Account") },
-            icon = { Icon(Icons.Filled.Person, contentDescription = null) },
-            selected = false,
-            onClick = onProfile,
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        NavigationDrawerItem(
-            label = { Text("Settings") },
-            icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-            selected = false,
-            onClick = onSettings,
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        NavigationDrawerItem(
-            label = { Text("Sign out") },
-            selected = false,
-            onClick = onSignOut,
-            modifier = Modifier.padding(horizontal = 12.dp),
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+            modifier = Modifier.size(18.dp),
         )
     }
 }
