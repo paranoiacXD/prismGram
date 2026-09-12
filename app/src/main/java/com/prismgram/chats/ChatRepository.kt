@@ -632,8 +632,13 @@ class ChatRepository(private val td: TdClient) {
 
         val reactions = message.interactionInfo?.reactions?.reactions
             ?.mapNotNull { reaction ->
-                (reaction.type as? TdApi.ReactionTypeEmoji)?.let {
-                    ReactionItem(it.emoji, reaction.totalCount, reaction.isChosen)
+                when (val type = reaction.type) {
+                    is TdApi.ReactionTypeEmoji ->
+                        ReactionItem(type.emoji, reaction.totalCount, reaction.isChosen)
+                    // premium custom emoji, we cant draw those, use a stand-in
+                    is TdApi.ReactionTypeCustomEmoji ->
+                        ReactionItem("\u2B50", reaction.totalCount, reaction.isChosen)
+                    else -> null
                 }
             }
             ?.filter { it.count > 0 }

@@ -71,6 +71,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,6 +91,7 @@ import com.prismgram.ui.common.LoadingScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.FileInputStream
 import java.util.zip.GZIPInputStream
 import kotlin.math.abs
@@ -259,7 +261,7 @@ private fun ChatTopBar(state: ChatUiState, onBack: () -> Unit) {
                 )
             } else if (photoPath != null) {
                 AsyncImage(
-                    model = photoPath,
+                    model = File(photoPath),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -600,7 +602,7 @@ private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit
             )
 
             path != null && !failed -> AsyncImage(
-                model = path,
+                model = File(path),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 onError = { state ->
@@ -612,6 +614,8 @@ private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit
 
             else -> Text(
                 text = emoji,
+                // emoji need the system font, poppins has no emoji glyphs
+                fontFamily = FontFamily.Default,
                 style = MaterialTheme.typography.displaySmall,
                 modifier = Modifier.padding(8.dp),
             )
@@ -646,7 +650,11 @@ private fun LottieSticker(path: String, fallbackEmoji: String, modifier: Modifie
             modifier = modifier,
             contentAlignment = Alignment.Center,
         ) {
-            Text(fallbackEmoji, style = MaterialTheme.typography.displaySmall)
+            Text(
+                text = fallbackEmoji,
+                fontFamily = FontFamily.Default,
+                style = MaterialTheme.typography.displaySmall,
+            )
         }
     }
 }
@@ -783,7 +791,11 @@ private fun ReactionChip(reaction: ReactionItem, onClick: () -> Unit) {
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = reaction.emoji, style = MaterialTheme.typography.labelMedium)
+            Text(
+                text = reaction.emoji,
+                fontFamily = FontFamily.Default,
+                style = MaterialTheme.typography.labelMedium,
+            )
             if (reaction.count > 1) {
                 Spacer(Modifier.width(4.dp))
                 Text(
@@ -856,7 +868,7 @@ private fun MediaView(message: MessageItem, onMediaClick: (String) -> Unit) {
     ) {
         if (message.mediaPath != null) {
             AsyncImage(
-                model = message.mediaPath,
+                model = File(message.mediaPath),
                 contentDescription = label,
                 contentScale = ContentScale.Crop,
                 onError = { state ->
@@ -923,7 +935,7 @@ private fun MediaViewer(path: String, onClose: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
-            model = path,
+            model = File(path),
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = Modifier

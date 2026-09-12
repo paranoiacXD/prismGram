@@ -150,7 +150,7 @@ private fun SettingsProfileHeader(info: AccountInfo?, onClick: () -> Unit) {
             ) {
                 if (info?.photoPath != null) {
                     AsyncImage(
-                        model = info.photoPath,
+                        model = java.io.File(info.photoPath),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),

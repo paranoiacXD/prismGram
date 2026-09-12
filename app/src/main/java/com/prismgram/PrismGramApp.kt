@@ -2,6 +2,11 @@ package com.prismgram
 
 import android.app.Application
 import android.content.Context
+import android.os.Build
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import com.prismgram.account.AccountRepository
 import com.prismgram.auth.AuthRepository
 import com.prismgram.chats.ChatListRepository
@@ -22,9 +27,22 @@ class AppContainer(context: Context) {
     val chatRepository = ChatRepository(tdClient)
 }
 
-class PrismGramApp : Application() {
+class PrismGramApp : Application(), ImageLoaderFactory {
     lateinit var container: AppContainer
         private set
+
+    // animated webp/gif support, otherwise stickers and gifs dont draw
+    override fun newImageLoader(): ImageLoader =
+        ImageLoader.Builder(this)
+            .components {
+                // imagedecoder handles animated webp on api 28+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    add(ImageDecoderDecoder.Factory())
+                }
+                add(GifDecoder.Factory())
+            }
+            .crossfade(true)
+            .build()
 
     override fun onCreate() {
         super.onCreate()

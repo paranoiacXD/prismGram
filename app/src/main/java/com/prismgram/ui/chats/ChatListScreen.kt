@@ -69,6 +69,7 @@ import com.prismgram.chats.ChatListItem
 import com.prismgram.chats.ChatListUiState
 import com.prismgram.chats.FolderTab
 import kotlinx.coroutines.flow.distinctUntilChanged
+import java.io.File
 import kotlin.math.abs
 
 @Composable
@@ -412,7 +413,7 @@ private fun ChatAvatar(chat: ChatListItem) {
                 modifier = Modifier.size(26.dp),
             )
             chat.photoPath != null -> AsyncImage(
-                model = chat.photoPath,
+                model = File(chat.photoPath),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
