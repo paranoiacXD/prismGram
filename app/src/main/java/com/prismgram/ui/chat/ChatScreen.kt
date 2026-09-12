@@ -1,0 +1,506 @@
+package com.prismgram.ui.chat
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import com.prismgram.R
+import com.prismgram.chats.ChatUiState
+import com.prismgram.chats.MessageItem
+import com.prismgram.chats.MessageMedia
+import com.prismgram.ui.common.ErrorPanel
+import com.prismgram.ui.common.LoadingScreen
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlin.math.abs
+
+@Composable
+fun ChatScreen(
+    state: ChatUiState,
+    onBack: () -> Unit,
+    onLoadMore: () -> Unit,
+    onSend: (String) -> Unit,
+) {
+    val ready = state as? ChatUiState.Ready
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+    ) {
+        ChatTopBar(state, onBack)
+
+        if (ready?.pinnedText != null) {
+            PinnedBar(ready.pinnedText)
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
+            when (state) {
+                is ChatUiState.Closed -> LoadingScreen("Loading messages…")
+                is ChatUiState.Loading -> LoadingScreen("Loading messages…")
+                is ChatUiState.Error -> ErrorPanel(state.message)
+                is ChatUiState.Ready -> MessageList(state, onLoadMore)
+            }
+        }
+
+        // channels you cant write to get no input bar
+        if (ready == null || ready.canSend) {
+            ChatInputBar(onSend)
+        }
+    }
+}
+
+@Composable
+private fun ChatTopBar(state: ChatUiState, onBack: () -> Unit) {
+    val ready = state as? ChatUiState.Ready
+    val title = ready?.title ?: "Chat"
+    val photoPath = ready?.photoPath
+    val saved = ready?.isSavedMessages == true
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        }
+
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(
+                    if (saved) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (saved) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_bookmark),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(20.dp),
+                )
+            } else if (photoPath != null) {
+                AsyncImage(
+                    model = photoPath,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text(
+                    text = title.take(1).uppercase(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun PinnedBar(text: String) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_pin),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Pinned message",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+    }
+}
+
+@Composable
+private fun MessageList(state: ChatUiState.Ready, onLoadMore: () -> Unit) {
+    val listState = rememberLazyListState()
+    val newestId = state.messages.firstOrNull()?.id
+
+    // jump to the bottom whenever the newest message changes (sent or received)
+    LaunchedEffect(newestId) {
+        if (newestId != null) {
+            runCatching { listState.animateScrollToItem(0) }
+        }
+    }
+
+    // reaching the end of the reversed list means older messages
+    LaunchedEffect(listState, state.messages.size) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+            .distinctUntilChanged()
+            .collect { last ->
+                if (last != null && last >= state.messages.size - 3) {
+                    onLoadMore()
+                }
+            }
+    }
+
+    LazyColumn(
+        state = listState,
+        reverseLayout = true,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        items(
+            items = state.messages,
+            key = { it.id },
+            contentType = { item ->
+                when {
+                    item.service -> "service"
+                    item.media == MessageMedia.STICKER -> "sticker"
+                    else -> "message"
+                }
+            },
+        ) { message ->
+            MessageRow(message)
+        }
+    }
+}
+
+@Composable
+private fun MessageRow(message: MessageItem) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (message.dateLabel != null) {
+            DaySeparator(message.dateLabel)
+        }
+
+        if (message.service) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ) {
+                    Text(
+                        text = message.text,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            return@Column
+        }
+
+        if (message.media == MessageMedia.STICKER) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                StickerView(message)
+            }
+            return@Column
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 1.dp),
+            contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            MessageBubble(message)
+        }
+    }
+}
+
+@Composable
+private fun DaySeparator(label: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StickerView(message: MessageItem) {
+    if (message.mediaPath != null) {
+        AsyncImage(
+            model = message.mediaPath,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(140.dp),
+        )
+    } else {
+        Text(
+            text = message.showEmoji ?: "\uD83D\uDC45",
+            style = MaterialTheme.typography.displaySmall,
+            modifier = Modifier.padding(8.dp),
+        )
+    }
+}
+
+@Composable
+private fun MessageBubble(message: MessageItem) {
+    Surface(
+        shape = RoundedCornerShape(
+            topStart = 18.dp,
+            topEnd = 18.dp,
+            bottomStart = if (message.isOutgoing) 18.dp else 4.dp,
+            bottomEnd = if (message.isOutgoing) 4.dp else 18.dp,
+        ),
+        color = if (message.isOutgoing) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        modifier = Modifier.widthIn(max = 320.dp),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+            if (!message.isOutgoing && message.senderName != null) {
+                Text(
+                    text = message.senderName,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = senderColor(message.senderName),
+                )
+                Spacer(Modifier.height(2.dp))
+            }
+
+            if (message.media != MessageMedia.NONE) {
+                MediaView(message)
+                if (message.text.isNotBlank()) Spacer(Modifier.height(6.dp))
+            }
+
+            if (message.text.isNotBlank()) {
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (message.isOutgoing) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = message.timeLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (message.isOutgoing) {
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                if (message.failed) {
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "failed",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MediaView(message: MessageItem) {
+    val label = when (message.media) {
+        MessageMedia.PHOTO -> "Photo"
+        MessageMedia.VIDEO -> "Video"
+        MessageMedia.GIF -> "GIF"
+        else -> ""
+    }
+
+    Box(
+        modifier = Modifier
+            .width(220.dp)
+            .height(160.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (message.mediaPath != null) {
+            AsyncImage(
+                model = message.mediaPath,
+                contentDescription = label,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (message.media == MessageMedia.VIDEO && message.durationLabel != null) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp),
+            ) {
+                Text(
+                    text = message.durationLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatInputBar(onSend: (String) -> Unit) {
+    var text by rememberSaveable { mutableStateOf("") }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            placeholder = { Text("Message") },
+            shape = RoundedCornerShape(24.dp),
+            maxLines = 5,
+            modifier = Modifier.weight(1f),
+        )
+
+        Spacer(Modifier.width(8.dp))
+
+        FilledIconButton(
+            onClick = {
+                val outgoing = text.trim()
+                if (outgoing.isNotEmpty()) {
+                    onSend(outgoing)
+                    text = ""
+                }
+            },
+            enabled = text.isNotBlank(),
+            modifier = Modifier.size(52.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+        }
+    }
+}
+
+// stable color per sender name
+@Composable
+private fun senderColor(name: String): androidx.compose.ui.graphics.Color {
+    val palette = listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.tertiary,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.error,
+    )
+    return palette[(abs(name.hashCode()) % palette.size)]
+}

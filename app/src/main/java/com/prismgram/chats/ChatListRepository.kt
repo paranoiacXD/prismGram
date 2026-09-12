@@ -293,6 +293,8 @@ class ChatListRepository(
                 isPinned = position.isPinned,
                 isMuted = (chat.notificationSettings?.muteFor ?: 0) > 0,
                 isSavedMessages = isSavedMessages,
+                showSenderNames = chat.type is TdApi.ChatTypeBasicGroup ||
+                    chat.type is TdApi.ChatTypeSupergroup,
                 order = position.order,
             )
             // keep the old instance when nothing changed, rows that didnt

@@ -16,7 +16,25 @@ data class ChatListItem(
     val isPinned: Boolean,
     val isMuted: Boolean,
     val isSavedMessages: Boolean,
+    val showSenderNames: Boolean,
     val order: Long,
+)
+
+// what the chat screen needs to know about the chat its opening
+data class ChatTarget(
+    val id: Long,
+    val title: String,
+    val photoPath: String?,
+    val isSavedMessages: Boolean,
+    val showSenderNames: Boolean,
+)
+
+fun ChatListItem.toTarget() = ChatTarget(
+    id = id,
+    title = title,
+    photoPath = photoPath,
+    isSavedMessages = isSavedMessages,
+    showSenderNames = showSenderNames,
 )
 
 // folder tab, folderId 0 means the main "All" list

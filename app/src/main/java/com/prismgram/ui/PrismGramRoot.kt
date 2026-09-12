@@ -59,6 +59,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.prismgram.account.AccountInfo
 import com.prismgram.auth.AuthState
+import com.prismgram.chats.ChatTarget
+import com.prismgram.chats.toTarget
 import com.prismgram.ui.account.AccountScreen
 import com.prismgram.ui.account.AccountUiState
 import com.prismgram.ui.account.AccountViewModel
@@ -66,6 +68,8 @@ import com.prismgram.ui.auth.AuthViewModel
 import com.prismgram.ui.auth.CodeScreen
 import com.prismgram.ui.auth.PasswordScreen
 import com.prismgram.ui.auth.PhoneScreen
+import com.prismgram.ui.chat.ChatScreen
+import com.prismgram.ui.chat.ChatViewModel
 import com.prismgram.ui.chats.ChatListScreen
 import com.prismgram.ui.chats.ChatListViewModel
 import com.prismgram.ui.common.ErrorPanel
@@ -73,13 +77,19 @@ import com.prismgram.ui.common.LoadingScreen
 import com.prismgram.ui.settings.SettingsScreen
 import kotlinx.coroutines.launch
 
-private enum class MainScreen { Chats, Profile, Settings }
+private sealed interface Screen {
+    data object Chats : Screen
+    data object Profile : Screen
+    data object Settings : Screen
+    data class Chat(val target: ChatTarget) : Screen
+}
 
 @Composable
 fun PrismGramRoot(
     authViewModel: AuthViewModel,
     accountViewModel: AccountViewModel,
     chatListViewModel: ChatListViewModel,
+    chatViewModel: ChatViewModel,
 ) {
     val authState by authViewModel.state.collectAsState()
     val busy by authViewModel.busy.collectAsState()
@@ -87,21 +97,22 @@ fun PrismGramRoot(
     val chatListState by chatListViewModel.state.collectAsState()
     val chatListFolders by chatListViewModel.folders.collectAsState()
     val chatListSelectedFolder by chatListViewModel.selectedFolderId.collectAsState()
+    val chatState by chatViewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showPhoneEntry by remember { mutableStateOf(false) }
-    var screen by remember { mutableStateOf(MainScreen.Chats) }
-    val backStack = remember { mutableStateListOf<MainScreen>() }
+    var screen by remember { mutableStateOf<Screen>(Screen.Chats) }
+    val backStack = remember { mutableStateListOf<Screen>() }
 
     // real back stack so < returns to where you actually came from
-    val navigate: (MainScreen) -> Unit = { target ->
+    val navigate: (Screen) -> Unit = { target ->
         if (target != screen) {
             backStack.add(screen)
             screen = target
         }
     }
     val goBack: () -> Unit = {
-        screen = backStack.removeLastOrNull() ?: MainScreen.Chats
+        screen = backStack.removeLastOrNull() ?: Screen.Chats
     }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -112,15 +123,25 @@ fun PrismGramRoot(
             is AuthState.Ready -> {
                 showPhoneEntry = false
                 backStack.clear()
-                screen = MainScreen.Chats
+                screen = Screen.Chats
                 accountViewModel.load()
             }
             is AuthState.WaitPhoneNumber -> {
                 showPhoneEntry = false
                 backStack.clear()
-                screen = MainScreen.Chats
+                screen = Screen.Chats
             }
             else -> Unit
+        }
+    }
+
+    // drive the chat repository off whatever chat is open
+    LaunchedEffect(screen) {
+        val current = screen
+        if (current is Screen.Chat) {
+            chatViewModel.open(current.target)
+        } else {
+            chatViewModel.close()
         }
     }
 
@@ -130,7 +151,7 @@ fun PrismGramRoot(
         }
     }
 
-    BackHandler(enabled = authState is AuthState.Ready && screen != MainScreen.Chats) {
+    BackHandler(enabled = authState is AuthState.Ready && screen != Screen.Chats) {
         goBack()
     }
 
@@ -147,16 +168,18 @@ fun PrismGramRoot(
                 state is AuthState.Ready -> {
                     ModalNavigationDrawer(
                         drawerState = drawerState,
+                        // the edge swipe fights with the system back gesture
+                        gesturesEnabled = false,
                         drawerContent = {
                             AppDrawer(
                                 info = (accountState as? AccountUiState.Loaded)?.info,
                                 onProfile = {
                                     scope.launch { drawerState.close() }
-                                    navigate(MainScreen.Profile)
+                                    navigate(Screen.Profile)
                                 },
                                 onSettings = {
                                     scope.launch { drawerState.close() }
-                                    navigate(MainScreen.Settings)
+                                    navigate(Screen.Settings)
                                 },
                                 onSignOut = {
                                     scope.launch { drawerState.close() }
@@ -168,7 +191,7 @@ fun PrismGramRoot(
                         AnimatedContent(
                             targetState = screen,
                             transitionSpec = {
-                                if (targetState == MainScreen.Chats) {
+                                if (targetState == Screen.Chats) {
                                     (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
                                         (slideOutHorizontally { it } + fadeOut())
                                 } else {
@@ -179,26 +202,33 @@ fun PrismGramRoot(
                             label = "main",
                         ) { current ->
                             when (current) {
-                                MainScreen.Chats -> ChatListScreen(
+                                Screen.Chats -> ChatListScreen(
                                     state = chatListState,
                                     folders = chatListFolders,
                                     selectedFolderId = chatListSelectedFolder,
                                     onOpenMenu = { scope.launch { drawerState.open() } },
                                     onSelectFolder = { chatListViewModel.selectFolder(it) },
                                     onVisibleChatsChanged = { chatListViewModel.requestPhotos(it) },
-                                    onChatClick = { },
+                                    onChatClick = { chat -> navigate(Screen.Chat(chat.toTarget())) },
                                 )
 
-                                MainScreen.Profile -> AccountScreen(
+                                Screen.Profile -> AccountScreen(
                                     state = accountState,
                                     onBack = goBack,
                                 ) { accountViewModel.signOut() }
 
-                                MainScreen.Settings -> SettingsScreen(
+                                Screen.Settings -> SettingsScreen(
                                     info = (accountState as? AccountUiState.Loaded)?.info,
                                     onBack = goBack,
-                                    onOpenProfile = { navigate(MainScreen.Profile) },
+                                    onOpenProfile = { navigate(Screen.Profile) },
                                     onSignOut = { accountViewModel.signOut() },
+                                )
+
+                                is Screen.Chat -> ChatScreen(
+                                    state = chatState,
+                                    onBack = goBack,
+                                    onLoadMore = { chatViewModel.loadMore() },
+                                    onSend = { chatViewModel.send(it) },
                                 )
                             }
                         }

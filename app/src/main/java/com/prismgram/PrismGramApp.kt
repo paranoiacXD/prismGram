@@ -5,6 +5,7 @@ import android.content.Context
 import com.prismgram.account.AccountRepository
 import com.prismgram.auth.AuthRepository
 import com.prismgram.chats.ChatListRepository
+import com.prismgram.chats.ChatRepository
 import com.prismgram.tdlib.TdClient
 import com.prismgram.ui.auth.Countries
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +19,7 @@ class AppContainer(context: Context) {
     val authRepository = AuthRepository(tdClient, appContext)
     val accountRepository = AccountRepository(tdClient)
     val chatListRepository = ChatListRepository(tdClient, authRepository.state)
+    val chatRepository = ChatRepository(tdClient)
 }
 
 class PrismGramApp : Application() {
