@@ -23,6 +23,7 @@ data class MessageItem(
     val service: Boolean,
     val media: MessageMedia,
     val mediaPath: String?,
+    val mediaAspect: Float?,
     val durationLabel: String?,
     val showEmoji: String?,
     val stickerFormat: StickerFormat?,
@@ -126,6 +127,18 @@ fun mediaFile(content: TdApi.MessageContent?): TdApi.File? = when (content) {
 fun mediaDuration(content: TdApi.MessageContent?): Int? = when (content) {
     is TdApi.MessageVideo -> content.video.duration.takeIf { it > 0 }
     is TdApi.MessageAnimation -> content.animation.duration.takeIf { it > 0 }
+    else -> null
+}
+
+private fun ratio(width: Int, height: Int): Float? =
+    if (width > 0 && height > 0) width.toFloat() / height else null
+
+// width / height, so stickers and gifs keep their real shape on screen
+fun mediaAspectOf(content: TdApi.MessageContent?): Float? = when (content) {
+    is TdApi.MessageSticker -> ratio(content.sticker.width, content.sticker.height)
+    is TdApi.MessageAnimation -> ratio(content.animation.width, content.animation.height)
+    is TdApi.MessageVideo -> ratio(content.video.width, content.video.height)
+    is TdApi.MessagePhoto -> content.photo.sizes.lastOrNull()?.let { ratio(it.width, it.height) }
     else -> null
 }
 

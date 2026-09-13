@@ -52,10 +52,9 @@ import java.io.File
 fun AccountScreen(
     state: AccountUiState,
     onBack: (() -> Unit)? = null,
-    onSaveProfile: (String, String, String) -> Unit = { _, _, _ -> },
+    onEditProfile: () -> Unit = {},
     onSignOut: () -> Unit,
 ) {
-    var editOpen by remember { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
 
     when (state) {
@@ -64,20 +63,8 @@ fun AccountScreen(
         is AccountUiState.Loaded -> AccountContent(
             info = state.info,
             onBack = onBack,
-            onEdit = { editOpen = true },
+            onEdit = onEditProfile,
             onSignOut = { confirmSignOut = true },
-        )
-    }
-
-    val loaded = state as? AccountUiState.Loaded
-    if (editOpen && loaded != null) {
-        EditProfileDialog(
-            info = loaded.info,
-            onDismiss = { editOpen = false },
-            onSave = { first, last, bio ->
-                onSaveProfile(first, last, bio)
-                editOpen = false
-            },
         )
     }
 
@@ -90,57 +77,6 @@ fun AccountScreen(
             },
         )
     }
-}
-
-@Composable
-private fun EditProfileDialog(
-    info: AccountInfo,
-    onDismiss: () -> Unit,
-    onSave: (String, String, String) -> Unit,
-) {
-    var firstName by remember { mutableStateOf(info.firstName) }
-    var lastName by remember { mutableStateOf(info.lastName) }
-    var bio by remember { mutableStateOf(info.bio.orEmpty()) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Edit profile") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = firstName,
-                    onValueChange = { firstName = it },
-                    label = { Text("First name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = lastName,
-                    onValueChange = { lastName = it },
-                    label = { Text("Last name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = bio,
-                    onValueChange = { bio = it },
-                    label = { Text("Bio") },
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { if (firstName.isNotBlank()) onSave(firstName.trim(), lastName.trim(), bio.trim()) },
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-    )
 }
 
 @Composable

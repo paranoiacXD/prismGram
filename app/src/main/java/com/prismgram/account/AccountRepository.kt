@@ -55,6 +55,20 @@ class AccountRepository(private val td: TdClient) {
         td.await(TdApi.SetBio(bio))
     }
 
+    suspend fun updateUsername(username: String) {
+        td.await(TdApi.SetUsername(username))
+    }
+
+    // localPath is a file we already copied into our own cache
+    suspend fun updatePhoto(localPath: String) {
+        td.await(
+            TdApi.SetProfilePhoto(
+                TdApi.InputChatPhotoStatic(TdApi.InputFileLocal(localPath)),
+                false,
+            ),
+        )
+    }
+
     private companion object {
         const val PRIORITY = 32
     }

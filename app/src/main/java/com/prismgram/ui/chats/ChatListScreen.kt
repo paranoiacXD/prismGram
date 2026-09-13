@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -261,11 +262,16 @@ private fun HeaderCenterSlot(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier) {
+    // fixed height so swapping the title for the field never resizes the row.
+    // slides are what made the title look like it was flying around
+    Box(
+        modifier = modifier.height(56.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
         AnimatedVisibility(
             visible = !searchOpen,
-            enter = fadeIn() + slideInHorizontally { -it / 6 },
-            exit = fadeOut() + slideOutHorizontally { -it / 6 },
+            enter = fadeIn(),
+            exit = fadeOut(),
         ) {
             Text(
                 text = "PrismGram",
@@ -276,8 +282,8 @@ private fun HeaderCenterSlot(
 
         AnimatedVisibility(
             visible = searchOpen,
-            enter = fadeIn() + slideInHorizontally { it / 6 },
-            exit = fadeOut() + slideOutHorizontally { it / 6 },
+            enter = fadeIn(),
+            exit = fadeOut(),
         ) {
             ChatSearchField(
                 query = query,

@@ -674,6 +674,7 @@ class ChatRepository(private val td: TdClient) {
             service = service != null,
             media = mediaKind(content),
             mediaPath = mediaPaths[message.id],
+            mediaAspect = mediaAspectOf(content),
             durationLabel = mediaDuration(content)?.let { formatDuration(it) },
             showEmoji = (content as? TdApi.MessageSticker)?.sticker?.emoji,
             stickerFormat = stickerFormatOf(content),

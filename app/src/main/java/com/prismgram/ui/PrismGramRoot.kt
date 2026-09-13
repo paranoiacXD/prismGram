@@ -65,6 +65,7 @@ import com.prismgram.settings.AppPrefs
 import com.prismgram.ui.account.AccountScreen
 import com.prismgram.ui.account.AccountUiState
 import com.prismgram.ui.account.AccountViewModel
+import com.prismgram.ui.account.EditProfileScreen
 import com.prismgram.ui.auth.AuthViewModel
 import com.prismgram.ui.auth.CodeScreen
 import com.prismgram.ui.auth.PasswordScreen
@@ -78,13 +79,16 @@ import com.prismgram.ui.common.ErrorPanel
 import com.prismgram.ui.common.LoadingScreen
 import com.prismgram.ui.common.SignOutConfirmDialog
 import com.prismgram.ui.permissions.PermissionsScreen
+import com.prismgram.ui.settings.PrismGramSettingsScreen
 import com.prismgram.ui.settings.SettingsScreen
 import kotlinx.coroutines.launch
 
 private sealed interface Screen {
     data object Chats : Screen
     data object Profile : Screen
+    data object EditProfile : Screen
     data object Settings : Screen
+    data object PrismSettings : Screen
     data class Chat(val target: ChatTarget) : Screen
 }
 
@@ -99,6 +103,7 @@ fun PrismGramRoot(
     val busy by authViewModel.busy.collectAsState()
     val authError by authViewModel.error.collectAsState()
     val accountState by accountViewModel.state.collectAsState()
+    val accountSaving by accountViewModel.saving.collectAsState()
     val chatListState by chatListViewModel.state.collectAsState()
     val chatListFolders by chatListViewModel.folders.collectAsState()
     val chatListSelectedFolder by chatListViewModel.selectedFolderId.collectAsState()
@@ -109,16 +114,19 @@ fun PrismGramRoot(
     var screen by remember { mutableStateOf<Screen>(Screen.Chats) }
     var confirmSignOut by remember { mutableStateOf(false) }
     var permissionsDone by remember { mutableStateOf(AppPrefs.permissionsOnboarded()) }
+    var navForward by remember { mutableStateOf(true) }
     val backStack = remember { mutableStateListOf<Screen>() }
 
     // real back stack so < returns to where you actually came from
     val navigate: (Screen) -> Unit = { target ->
         if (target != screen) {
             backStack.add(screen)
+            navForward = true
             screen = target
         }
     }
     val goBack: () -> Unit = {
+        navForward = false
         screen = backStack.removeLastOrNull() ?: Screen.Chats
     }
 
@@ -208,12 +216,14 @@ fun PrismGramRoot(
                         AnimatedContent(
                             targetState = screen,
                             transitionSpec = {
-                                if (targetState == Screen.Chats) {
-                                    (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
-                                        (slideOutHorizontally { it } + fadeOut())
-                                } else {
+                                // going deeper slides in from the right, going back
+                                // slides out to the right like a normal stack
+                                if (navForward) {
                                     (slideInHorizontally { it } + fadeIn()) togetherWith
                                         (slideOutHorizontally { -it / 4 } + fadeOut())
+                                } else {
+                                    (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
+                                        (slideOutHorizontally { it } + fadeOut())
                                 }
                             },
                             label = "main",
@@ -232,17 +242,29 @@ fun PrismGramRoot(
                                 Screen.Profile -> AccountScreen(
                                     state = accountState,
                                     onBack = goBack,
-                                    onSaveProfile = { first, last, bio ->
-                                        accountViewModel.updateProfile(first, last, bio)
-                                    },
+                                    onEditProfile = { navigate(Screen.EditProfile) },
                                 ) { confirmSignOut = true }
+
+                                Screen.EditProfile -> EditProfileScreen(
+                                    info = (accountState as? AccountUiState.Loaded)?.info,
+                                    onBack = goBack,
+                                    onSave = { first, last, username, bio ->
+                                        accountViewModel.updateProfile(first, last, username, bio)
+                                        goBack()
+                                    },
+                                    onPhotoPicked = { path -> accountViewModel.updatePhoto(path) },
+                                    busy = accountSaving,
+                                )
 
                                 Screen.Settings -> SettingsScreen(
                                     info = (accountState as? AccountUiState.Loaded)?.info,
                                     onBack = goBack,
                                     onOpenProfile = { navigate(Screen.Profile) },
+                                    onOpenPrismSettings = { navigate(Screen.PrismSettings) },
                                     onSignOut = { confirmSignOut = true },
                                 )
+
+                                Screen.PrismSettings -> PrismGramSettingsScreen(onBack = goBack)
 
                                 is Screen.Chat -> ChatScreen(
                                     state = chatState,

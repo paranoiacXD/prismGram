@@ -21,6 +21,9 @@ class AccountViewModel(private val repository: AccountRepository) : ViewModel() 
     private val _state = MutableStateFlow<AccountUiState>(AccountUiState.Loading)
     val state: StateFlow<AccountUiState> = _state.asStateFlow()
 
+    private val _saving = MutableStateFlow(false)
+    val saving: StateFlow<Boolean> = _saving.asStateFlow()
+
     private var loadedOnce = false
 
     fun load(force: Boolean = false) {
@@ -42,12 +45,26 @@ class AccountViewModel(private val repository: AccountRepository) : ViewModel() 
         }
     }
 
-    fun updateProfile(firstName: String, lastName: String, bio: String) {
+    fun updateProfile(firstName: String, lastName: String, username: String, bio: String) {
         viewModelScope.launch {
+            _saving.value = true
             runCatching {
                 repository.updateName(firstName, lastName)
+                if (username.isNotEmpty()) {
+                    repository.updateUsername(username)
+                }
                 repository.updateBio(bio)
             }
+            _saving.value = false
+            load(force = true)
+        }
+    }
+
+    fun updatePhoto(path: String) {
+        viewModelScope.launch {
+            _saving.value = true
+            runCatching { repository.updatePhoto(path) }
+            _saving.value = false
             load(force = true)
         }
     }

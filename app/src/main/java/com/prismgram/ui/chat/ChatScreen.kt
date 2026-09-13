@@ -561,11 +561,16 @@ private fun MessageRow(
             return@Column
         }
 
-        // gifs play inline, no bubble
+        // gifs play inline, no bubble, real aspect ratio
         if (message.media == MessageMedia.GIF) {
-            val gifModifier = Modifier
-                .width(240.dp)
-                .height(180.dp)
+            val aspect = message.mediaAspect ?: (16f / 9f)
+            val gifSize = if (aspect >= 1f) {
+                Modifier.width(240.dp).height((240f / aspect).dp)
+            } else {
+                Modifier.width((240f * aspect).dp).height(240.dp)
+            }
+
+            val gifModifier = gifSize
                 .clip(RoundedCornerShape(12.dp))
                 .combinedClickable(
                     onClick = { },
@@ -648,6 +653,14 @@ private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit
         }
     }
 
+    // keep the real shape of the sticker, capped so huge ones dont take over
+    val aspect = message.mediaAspect ?: 1f
+    val stickerSize = if (aspect >= 1f) {
+        Modifier.width(150.dp).height((150f / aspect).dp)
+    } else {
+        Modifier.width((150f * aspect).dp).height(150.dp)
+    }
+
     Box(
         modifier = Modifier.combinedClickable(
             onClick = { },
@@ -658,7 +671,7 @@ private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit
             path != null && !failed && isTgs -> LottieSticker(
                 path = path,
                 fallbackEmoji = emoji,
-                modifier = Modifier.size(140.dp),
+                modifier = stickerSize,
             )
 
             path != null && !failed -> AsyncImage(
@@ -669,7 +682,7 @@ private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit
                     Log.e("ChatScreen", "sticker image failed: $path", state.result.throwable)
                     failed = true
                 },
-                modifier = Modifier.size(140.dp),
+                modifier = stickerSize,
             )
 
             else -> Text(

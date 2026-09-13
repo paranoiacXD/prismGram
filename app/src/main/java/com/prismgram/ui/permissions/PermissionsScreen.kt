@@ -6,6 +6,18 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,14 +40,20 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,9 +61,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.prismgram.ui.common.PrimaryButton
+import kotlinx.coroutines.delay
 
 private data class PermissionRow(
     val permission: String,
@@ -119,72 +139,200 @@ fun PermissionsScreen(onDone: () -> Unit) {
         ActivityResultContracts.RequestPermission(),
     ) { refresh++ }
 
-    val grantedStates = remember(refresh) {
+    val granted = remember(refresh) {
         rows.associate { it.permission to context.isGranted(it.permission) }
     }
+    val grantedCount = granted.count { it.value }
+    val requiredSatisfied = rows.filter { it.required }.all { granted[it.permission] == true }
 
-    // without notifications there is no point continuing
-    val requiredSatisfied = rows
-        .filter { it.required }
-        .all { grantedStates[it.permission] == true }
+    // animated ring of truth at the top
+    val progress by animateFloatAsState(
+        targetValue = grantedCount.toFloat() / rows.size.coerceAtLeast(1),
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "permissionProgress",
+    )
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .systemBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 24.dp),
+            .background(MaterialTheme.colorScheme.background)
+            .systemBarsPadding(),
     ) {
-        Text("Permissions", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = "PrismGram needs a few things to do its job. Notifications are required, " +
-                "the rest can be granted any time.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.height(12.dp))
 
-        Spacer(Modifier.height(20.dp))
+            // hero icon
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                AnimatedContent(
+                    targetState = requiredSatisfied,
+                    transitionSpec = {
+                        (scaleIn(initialScale = 0.6f) + fadeIn()) togetherWith
+                            (scaleOut(targetScale = 0.6f) + fadeOut())
+                    },
+                    label = "heroIcon",
+                ) { done ->
+                    Icon(
+                        imageVector = if (done) Icons.Filled.Check else Icons.Filled.Security,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(44.dp),
+                    )
+                }
+            }
 
-        rows.forEach { row ->
-            val granted = grantedStates[row.permission] == true
-            Row(
+            Spacer(Modifier.height(18.dp))
+            Text(
+                text = "Permissions",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "PrismGram needs a few things to work properly. Notifications are required, " +
+                    "everything else you can grant any time.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            LinearProgressIndicator(
+                progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 10.dp),
+                    .height(8.dp)
+                    .clip(CircleShape),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "$grantedCount of ${rows.size} granted",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            rows.forEachIndexed { index, row ->
+                PermissionCard(
+                    row = row,
+                    granted = granted[row.permission] == true,
+                    index = index,
+                    onGrant = { launcher.launch(row.permission) },
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Button(
+                onClick = onDone,
+                enabled = requiredSatisfied,
+                shape = CircleShape,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+            ) {
+                Text("Continue", style = MaterialTheme.typography.titleMedium)
+            }
+
+            AnimatedVisibility(visible = !requiredSatisfied) {
+                Text(
+                    text = "Notifications are required to continue.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun PermissionCard(
+    row: PermissionRow,
+    granted: Boolean,
+    index: Int,
+    onGrant: () -> Unit,
+) {
+    // staggered entrance so they cascade in instead of popping at once
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(index * 70L)
+        shown = true
+    }
+
+    AnimatedVisibility(
+        visible = shown,
+        enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 3 },
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .background(
                             if (granted) {
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                             } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
+                                MaterialTheme.colorScheme.surfaceContainerHighest
                             },
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = if (granted) Icons.Filled.Check else row.icon,
-                        contentDescription = null,
-                        tint = if (granted) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                    AnimatedContent(
+                        targetState = granted,
+                        transitionSpec = {
+                            (scaleIn(initialScale = 0.5f) + fadeIn()) togetherWith
+                                (scaleOut(targetScale = 0.5f) + fadeOut())
                         },
-                        modifier = Modifier.size(20.dp),
-                    )
+                        label = "permIcon",
+                    ) { isGranted ->
+                        Icon(
+                            imageVector = if (isGranted) Icons.Filled.Check else row.icon,
+                            contentDescription = null,
+                            tint = if (isGranted) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.width(14.dp))
 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
                     Text(
                         text = if (row.required) "${row.title} (required)" else row.title,
                         style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = row.why,
@@ -193,36 +341,29 @@ fun PermissionsScreen(onDone: () -> Unit) {
                     )
                 }
 
-                if (granted) {
-                    Text(
-                        text = "Granted",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                } else {
-                    TextButton(onClick = { launcher.launch(row.permission) }) {
-                        Text("Grant")
+                Spacer(Modifier.width(10.dp))
+
+                AnimatedContent(
+                    targetState = granted,
+                    transitionSpec = {
+                        (scaleIn(initialScale = 0.8f) + fadeIn()) togetherWith
+                            (scaleOut(targetScale = 0.8f) + fadeOut())
+                    },
+                    label = "permButton",
+                ) { isGranted ->
+                    if (isGranted) {
+                        Text(
+                            text = "Granted",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    } else {
+                        FilledTonalButton(onClick = onGrant) {
+                            Text("Grant")
+                        }
                     }
                 }
             }
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        PrimaryButton(
-            text = "Continue",
-            busy = false,
-            enabled = requiredSatisfied,
-            onClick = onDone,
-        )
-
-        if (!requiredSatisfied) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Grant notifications to continue.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
         }
     }
 }
