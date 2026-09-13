@@ -97,12 +97,28 @@ class AuthRepository(
     }
 
     // log in by scanning a qr on a device thats already logged in. no code at all
-    fun requestQrLogin() = runRequest {
-        AppLogger.log(TAG, "requesting QR login")
-        td.await(TdApi.RequestQrCodeAuthentication(longArrayOf()))
+    fun requestQrLogin() {
+        // already showing a qr, asking again is what caused "unexpected" errors
+        if (_state.value is AuthState.WaitQrConfirmation) return
+        if (_busy.value) return
+        scope.launch {
+            _busy.value = true
+            _error.value = null
+            try {
+                AppLogger.log(TAG, "requesting QR login")
+                td.await(TdApi.RequestQrCodeAuthentication(longArrayOf()))
+            } catch (t: Throwable) {
+                reportError(t)
+            } finally {
+                _busy.value = false
+            }
+        }
     }
 
     private fun runRequest(block: suspend () -> Unit) {
+        // tapping twice while tdlib is still working spams "unexpected" errors,
+        // so one request at a time
+        if (_busy.value) return
         scope.launch {
             _busy.value = true
             _error.value = null
@@ -213,6 +229,8 @@ class AuthRepository(
     private fun reportError(t: Throwable) {
         Log.e(TAG, "Authorization error", t)
         val message = describeError(t)
+        // repeated taps push the same error over and over, only report changes
+        if (_error.value == message) return
         AppLogger.log(TAG, "auth error: $message")
         _errors.tryEmit(message)
         _error.value = message

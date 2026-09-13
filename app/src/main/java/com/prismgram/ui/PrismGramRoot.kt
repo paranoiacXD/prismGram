@@ -251,7 +251,9 @@ fun PrismGramRoot(
                     }
                 }
 
-                showPhoneEntry ->
+                // never fall back to the phone screen while a qr flow is live,
+                // typing a number then just errors out
+                showPhoneEntry && state !is AuthState.WaitQrConfirmation ->
                     PhoneScreen(
                         busy = busy,
                         error = authError,
