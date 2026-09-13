@@ -226,7 +226,9 @@ class AuthRepository(
                 "PHONE_CODE_EXPIRED" -> "That code has expired. Request a new one."
                 "PASSWORD_HASH_INVALID" -> "Incorrect 2-step verification password."
                 "Authentication code can't be resend" ->
-                    "Please wait a moment before requesting another code."
+                    "Nothing new to resend - Telegram re-uses the active code. Use the newest code " +
+                        "it already sent to your other device. If that one is expired, wait a few " +
+                        "minutes without retrying, then request once."
                 "API_ID_INVALID", "API_ID_PUBLISHED_FLOOD" ->
                     "TDLib rejected the api_id/api_hash. Set valid values in local.properties."
                 else -> message
