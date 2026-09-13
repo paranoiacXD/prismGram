@@ -284,6 +284,7 @@ fun PrismGramRoot(
                     onClearError = { authViewModel.clearError() },
                     onResend = { authViewModel.resendCode() },
                     onBack = { showPhoneEntry = true },
+                    onQrLogin = { authViewModel.requestQrLogin() },
                 ) { authViewModel.submitCode(it) }
 
                 state is AuthState.WaitQrConfirmation -> QrLoginScreen(

@@ -392,6 +392,7 @@ fun CodeScreen(
     onClearError: () -> Unit = {},
     onResend: () -> Unit,
     onBack: () -> Unit,
+    onQrLogin: () -> Unit = {},
     onSubmit: (String) -> Unit,
 ) {
     var code by rememberSaveable { mutableStateOf("") }
@@ -490,11 +491,19 @@ fun CodeScreen(
             }
         } else {
             Text(
-                text = "Telegram is only delivering this code to your Telegram app, " +
-                    "there is no SMS option for it right now.",
+                text = "Telegram is only delivering this code to your Telegram app and it " +
+                    "offers no SMS or call fallback for it, so it cant be resent. If it " +
+                    "doesnt arrive, sign in with a QR code instead.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            TextButton(
+                onClick = onQrLogin,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Log in with QR code instead")
+            }
         }
         if (codeInfo?.type is TdApi.AuthenticationCodeTypeTelegramMessage) {
             TextButton(
