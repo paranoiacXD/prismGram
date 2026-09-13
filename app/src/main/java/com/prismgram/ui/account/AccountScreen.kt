@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,15 +18,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,19 +45,111 @@ import coil.compose.AsyncImage
 import com.prismgram.account.AccountInfo
 import com.prismgram.ui.common.ErrorPanel
 import com.prismgram.ui.common.LoadingScreen
+import com.prismgram.ui.common.SignOutConfirmDialog
 import java.io.File
 
 @Composable
-fun AccountScreen(state: AccountUiState, onBack: (() -> Unit)? = null, onSignOut: () -> Unit) {
+fun AccountScreen(
+    state: AccountUiState,
+    onBack: (() -> Unit)? = null,
+    onSaveProfile: (String, String, String) -> Unit = { _, _, _ -> },
+    onSignOut: () -> Unit,
+) {
+    var editOpen by remember { mutableStateOf(false) }
+    var confirmSignOut by remember { mutableStateOf(false) }
+
     when (state) {
         is AccountUiState.Loading -> LoadingScreen("Loading your account…")
         is AccountUiState.Error -> ErrorPanel(state.message)
-        is AccountUiState.Loaded -> AccountContent(state.info, onBack, onSignOut)
+        is AccountUiState.Loaded -> AccountContent(
+            info = state.info,
+            onBack = onBack,
+            onEdit = { editOpen = true },
+            onSignOut = { confirmSignOut = true },
+        )
+    }
+
+    val loaded = state as? AccountUiState.Loaded
+    if (editOpen && loaded != null) {
+        EditProfileDialog(
+            info = loaded.info,
+            onDismiss = { editOpen = false },
+            onSave = { first, last, bio ->
+                onSaveProfile(first, last, bio)
+                editOpen = false
+            },
+        )
+    }
+
+    if (confirmSignOut) {
+        SignOutConfirmDialog(
+            onDismiss = { confirmSignOut = false },
+            onConfirm = {
+                confirmSignOut = false
+                onSignOut()
+            },
+        )
     }
 }
 
 @Composable
-private fun AccountContent(info: AccountInfo, onBack: (() -> Unit)?, onSignOut: () -> Unit) {
+private fun EditProfileDialog(
+    info: AccountInfo,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Unit,
+) {
+    var firstName by remember { mutableStateOf(info.firstName) }
+    var lastName by remember { mutableStateOf(info.lastName) }
+    var bio by remember { mutableStateOf(info.bio.orEmpty()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit profile") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = firstName,
+                    onValueChange = { firstName = it },
+                    label = { Text("First name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = lastName,
+                    onValueChange = { lastName = it },
+                    label = { Text("Last name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = bio,
+                    onValueChange = { bio = it },
+                    label = { Text("Bio") },
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (firstName.isNotBlank()) onSave(firstName.trim(), lastName.trim(), bio.trim()) },
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun AccountContent(
+    info: AccountInfo,
+    onBack: (() -> Unit)?,
+    onEdit: () -> Unit,
+    onSignOut: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -56,20 +157,28 @@ private fun AccountContent(info: AccountInfo, onBack: (() -> Unit)?, onSignOut: 
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
-        if (onBack != null) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                    )
+                }
+            }
+            Text(
+                text = "Account",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Filled.Edit, contentDescription = "Edit profile")
             }
         }
-
-        Text(
-            text = "Account",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
 
         Spacer(Modifier.height(20.dp))
 

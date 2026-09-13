@@ -47,6 +47,14 @@ class AccountRepository(private val td: TdClient) {
         td.await(TdApi.LogOut())
     }
 
+    suspend fun updateName(firstName: String, lastName: String) {
+        td.await(TdApi.SetName(firstName, lastName))
+    }
+
+    suspend fun updateBio(bio: String) {
+        td.await(TdApi.SetBio(bio))
+    }
+
     private companion object {
         const val PRIORITY = 32
     }

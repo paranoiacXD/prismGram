@@ -21,8 +21,8 @@ android {
         applicationId = "com.prismgram"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -99,6 +99,9 @@ dependencies {
     implementation("com.airbnb.android:lottie-compose:6.6.6")
     // qr login, so you never need a code when another device is logged in
     implementation("com.google.zxing:core:3.5.3")
+    // telegram gifs are mp4, coil cant play those
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
     implementation("com.googlecode.libphonenumber:libphonenumber:8.13.44")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 

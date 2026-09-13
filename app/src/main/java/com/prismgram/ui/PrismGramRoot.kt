@@ -61,6 +61,7 @@ import com.prismgram.account.AccountInfo
 import com.prismgram.auth.AuthState
 import com.prismgram.chats.ChatTarget
 import com.prismgram.chats.toTarget
+import com.prismgram.settings.AppPrefs
 import com.prismgram.ui.account.AccountScreen
 import com.prismgram.ui.account.AccountUiState
 import com.prismgram.ui.account.AccountViewModel
@@ -75,6 +76,8 @@ import com.prismgram.ui.chats.ChatListScreen
 import com.prismgram.ui.chats.ChatListViewModel
 import com.prismgram.ui.common.ErrorPanel
 import com.prismgram.ui.common.LoadingScreen
+import com.prismgram.ui.common.SignOutConfirmDialog
+import com.prismgram.ui.permissions.PermissionsScreen
 import com.prismgram.ui.settings.SettingsScreen
 import kotlinx.coroutines.launch
 
@@ -104,6 +107,8 @@ fun PrismGramRoot(
 
     var showPhoneEntry by remember { mutableStateOf(false) }
     var screen by remember { mutableStateOf<Screen>(Screen.Chats) }
+    var confirmSignOut by remember { mutableStateOf(false) }
+    var permissionsDone by remember { mutableStateOf(AppPrefs.permissionsOnboarded()) }
     val backStack = remember { mutableStateListOf<Screen>() }
 
     // real back stack so < returns to where you actually came from
@@ -168,6 +173,15 @@ fun PrismGramRoot(
         ) {
             val state = authState
             when {
+                state is AuthState.Ready && !permissionsDone -> {
+                    PermissionsScreen(
+                        onDone = {
+                            AppPrefs.setPermissionsOnboarded(true)
+                            permissionsDone = true
+                        },
+                    )
+                }
+
                 state is AuthState.Ready -> {
                     ModalNavigationDrawer(
                         drawerState = drawerState,
@@ -186,7 +200,7 @@ fun PrismGramRoot(
                                 },
                                 onSignOut = {
                                     scope.launch { drawerState.close() }
-                                    accountViewModel.signOut()
+                                    confirmSignOut = true
                                 },
                             )
                         },
@@ -218,13 +232,16 @@ fun PrismGramRoot(
                                 Screen.Profile -> AccountScreen(
                                     state = accountState,
                                     onBack = goBack,
-                                ) { accountViewModel.signOut() }
+                                    onSaveProfile = { first, last, bio ->
+                                        accountViewModel.updateProfile(first, last, bio)
+                                    },
+                                ) { confirmSignOut = true }
 
                                 Screen.Settings -> SettingsScreen(
                                     info = (accountState as? AccountUiState.Loaded)?.info,
                                     onBack = goBack,
                                     onOpenProfile = { navigate(Screen.Profile) },
-                                    onSignOut = { accountViewModel.signOut() },
+                                    onSignOut = { confirmSignOut = true },
                                 )
 
                                 is Screen.Chat -> ChatScreen(
@@ -311,6 +328,16 @@ fun PrismGramRoot(
                 else -> ErrorPanel("Unexpected authorization state.")
             }
         }
+    }
+
+    if (confirmSignOut) {
+        SignOutConfirmDialog(
+            onDismiss = { confirmSignOut = false },
+            onConfirm = {
+                confirmSignOut = false
+                accountViewModel.signOut()
+            },
+        )
     }
 }
 

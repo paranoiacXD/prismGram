@@ -13,6 +13,7 @@ import com.prismgram.chats.ChatListRepository
 import com.prismgram.chats.ChatRepository
 import com.prismgram.tdlib.TdClient
 import com.prismgram.log.AppLogger
+import com.prismgram.settings.AppPrefs
 import com.prismgram.ui.auth.Countries
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +49,7 @@ class PrismGramApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         AppLogger.init(this)
+        AppPrefs.init(this)
         container = AppContainer(this)
 
         // building the country list touches PhoneNumberUtil, do it in the

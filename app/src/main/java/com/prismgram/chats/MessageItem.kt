@@ -113,7 +113,8 @@ fun mediaFile(content: TdApi.MessageContent?): TdApi.File? = when (content) {
     is TdApi.MessagePhoto ->
         (content.photo.sizes.firstOrNull { it.width >= 400 } ?: content.photo.sizes.lastOrNull())?.photo
     is TdApi.MessageVideo -> content.video.thumbnail?.file
-    is TdApi.MessageAnimation -> content.animation.thumbnail?.file
+    // telegram gifs are silent mp4s, so grab the real file and play it
+    is TdApi.MessageAnimation -> content.animation.animation
     is TdApi.MessageSticker -> when (content.sticker.format) {
         is TdApi.StickerFormatWebp, is TdApi.StickerFormatTgs -> content.sticker.sticker
         is TdApi.StickerFormatWebm -> content.sticker.thumbnail?.file

@@ -213,7 +213,7 @@ class AuthRepository(
                     apiId = BuildConfig.TG_API_ID
                     apiHash = BuildConfig.TG_API_HASH
                     systemLanguageCode = "en"
-                    deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}"
+                    deviceModel = "PrismGram"
                     systemVersion = "Android ${Build.VERSION.RELEASE}"
                     applicationVersion = BuildConfig.VERSION_NAME
                 }

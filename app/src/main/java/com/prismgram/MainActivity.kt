@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.prismgram.settings.AppPrefs
 import com.prismgram.ui.PrismGramRoot
 import com.prismgram.ui.account.AccountViewModel
 import com.prismgram.ui.auth.AuthViewModel
@@ -24,7 +27,10 @@ class MainActivity : ComponentActivity() {
         val container = (application as PrismGramApp).container
 
         setContent {
-            PrismGramTheme {
+            val dynamicColor by AppPrefs.dynamicColor.collectAsState()
+            val pureBlack by AppPrefs.pureBlack.collectAsState()
+
+            PrismGramTheme(dynamicColor = dynamicColor, pureBlack = pureBlack) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,

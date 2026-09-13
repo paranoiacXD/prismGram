@@ -26,7 +26,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,8 +36,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -51,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.prismgram.BuildConfig
 import com.prismgram.account.AccountInfo
+import com.prismgram.settings.AppPrefs
 
 @Composable
 fun SettingsScreen(
@@ -59,6 +64,9 @@ fun SettingsScreen(
     onOpenProfile: () -> Unit,
     onSignOut: () -> Unit,
 ) {
+    val dynamicColor by AppPrefs.dynamicColor.collectAsState()
+    val pureBlack by AppPrefs.pureBlack.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -78,6 +86,32 @@ fun SettingsScreen(
         }
 
         SettingsProfileHeader(info = info, onClick = onOpenProfile)
+
+        SettingsTitle(
+            text = "PrismGram settings",
+            modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 6.dp),
+        )
+
+        SettingsToggleGroup(
+            items = listOf(
+                ToggleItem(
+                    title = "Auto colour",
+                    subtitle = "Take colours from your wallpaper (Android 12+)",
+                    icon = Icons.Filled.Palette,
+                    accentColor = MaterialTheme.colorScheme.primary,
+                    checked = dynamicColor,
+                    onToggle = { AppPrefs.setDynamicColor(it) },
+                ),
+                ToggleItem(
+                    title = "Pure black",
+                    subtitle = "Real black surfaces in dark mode",
+                    icon = Icons.Filled.DarkMode,
+                    accentColor = MaterialTheme.colorScheme.tertiary,
+                    checked = pureBlack,
+                    onToggle = { AppPrefs.setPureBlack(it) },
+                ),
+            ),
+        )
 
         SettingsGroupCard(
             title = "Account",
@@ -111,6 +145,113 @@ fun SettingsScreen(
                 ),
             ),
         )
+    }
+}
+
+@Composable
+private fun SettingsTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier,
+    )
+}
+
+private data class ToggleItem(
+    val title: String,
+    val subtitle: String?,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val accentColor: Color,
+    val checked: Boolean,
+    val onToggle: (Boolean) -> Unit,
+)
+
+@Composable
+private fun SettingsToggleGroup(items: List<ToggleItem>) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+    ) {
+        Column {
+            items.forEachIndexed { index, item ->
+                SettingsToggleRow(item = item, showDivider = index < items.size - 1)
+            }
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+}
+
+@Composable
+private fun SettingsToggleRow(item: ToggleItem, showDivider: Boolean) {
+    val accent = if (item.accentColor.isSpecified) {
+        item.accentColor
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { item.onToggle(!item.checked) }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(accent.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+
+            Spacer(Modifier.width(14.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (item.subtitle != null) {
+                    Text(
+                        text = item.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Switch(
+                checked = item.checked,
+                onCheckedChange = { item.onToggle(it) },
+            )
+        }
+
+        if (showDivider) {
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 60.dp),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+            )
+        }
     }
 }
 

@@ -514,6 +514,7 @@ private fun MessageList(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageRow(
     message: MessageItem,
@@ -556,6 +557,41 @@ private fun MessageRow(
                 contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart,
             ) {
                 StickerView(message, onLongPress)
+            }
+            return@Column
+        }
+
+        // gifs play inline, no bubble
+        if (message.media == MessageMedia.GIF) {
+            val gifModifier = Modifier
+                .width(240.dp)
+                .height(180.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = { },
+                    onLongClick = { onLongPress(message) },
+                )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                if (message.mediaPath != null) {
+                    LoopingVideo(path = message.mediaPath, modifier = gifModifier)
+                } else {
+                    Box(
+                        modifier = gifModifier.background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "GIF",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
             return@Column
         }

@@ -129,15 +129,27 @@ private val DarkColors = darkColorScheme(
 fun PrismGramTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
+    pureBlack: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
+    val baseScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
         darkTheme -> DarkColors
         else -> LightColors
+    }
+
+    val colorScheme = if (darkTheme && pureBlack) {
+        baseScheme.copy(
+            background = Color.Black,
+            surface = Color.Black,
+            surfaceContainerLowest = Color.Black,
+            surfaceContainerLow = Color(0xFF0A0A0A),
+        )
+    } else {
+        baseScheme
     }
 
     MaterialTheme(

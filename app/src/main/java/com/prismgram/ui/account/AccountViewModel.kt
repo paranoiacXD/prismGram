@@ -42,6 +42,16 @@ class AccountViewModel(private val repository: AccountRepository) : ViewModel() 
         }
     }
 
+    fun updateProfile(firstName: String, lastName: String, bio: String) {
+        viewModelScope.launch {
+            runCatching {
+                repository.updateName(firstName, lastName)
+                repository.updateBio(bio)
+            }
+            load(force = true)
+        }
+    }
+
     companion object {
         fun factory(repository: AccountRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {

@@ -178,35 +178,70 @@ private fun ChatListHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+            .padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // menu on the left, becomes a back arrow while searching
-        AnimatedContent(
-            targetState = searchOpen,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
-            label = "leftIcon",
-        ) { open ->
-            IconButton(onClick = { if (open) onCloseSearch() else onOpenMenu() }) {
-                Icon(
-                    imageVector = if (open) {
-                        Icons.AutoMirrored.Filled.ArrowBack
-                    } else {
-                        Icons.Filled.Menu
-                    },
-                    contentDescription = if (open) "Close search" else "Menu",
-                )
-            }
-        }
+        // fixed size slots so the row width never changes while animating
+        HeaderLeftSlot(
+            searchOpen = searchOpen,
+            onOpenMenu = onOpenMenu,
+            onCloseSearch = onCloseSearch,
+        )
 
-        // title and field share one slot so the layout never jumps
-        ChatListHeaderCenter(
+        HeaderCenterSlot(
             searchOpen = searchOpen,
             query = query,
             onQueryChange = onQueryChange,
             modifier = Modifier.weight(1f),
         )
 
+        HeaderRightSlot(
+            searchOpen = searchOpen,
+            onOpenSearch = onOpenSearch,
+        )
+    }
+}
+
+@Composable
+private fun HeaderLeftSlot(
+    searchOpen: Boolean,
+    onOpenMenu: () -> Unit,
+    onCloseSearch: () -> Unit,
+) {
+    Box(
+        modifier = Modifier.size(48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedVisibility(
+            visible = !searchOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            IconButton(onClick = onOpenMenu) {
+                Icon(Icons.Filled.Menu, contentDescription = "Menu")
+            }
+        }
+        AnimatedVisibility(
+            visible = searchOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            IconButton(onClick = onCloseSearch) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeaderRightSlot(
+    searchOpen: Boolean,
+    onOpenSearch: () -> Unit,
+) {
+    Box(
+        modifier = Modifier.size(48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         AnimatedVisibility(
             visible = !searchOpen,
             enter = fadeIn(),
@@ -220,19 +255,17 @@ private fun ChatListHeader(
 }
 
 @Composable
-private fun ChatListHeaderCenter(
+private fun HeaderCenterSlot(
     searchOpen: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val focusRequester = remember { FocusRequester() }
-
     Box(modifier = modifier) {
         AnimatedVisibility(
             visible = !searchOpen,
-            enter = fadeIn(),
-            exit = fadeOut() + slideOutHorizontally { -it / 4 },
+            enter = fadeIn() + slideInHorizontally { -it / 6 },
+            exit = fadeOut() + slideOutHorizontally { -it / 6 },
         ) {
             Text(
                 text = "PrismGram",
@@ -243,31 +276,39 @@ private fun ChatListHeaderCenter(
 
         AnimatedVisibility(
             visible = searchOpen,
-            // grows out of the search icon on the right
-            enter = fadeIn() +
-                scaleIn(initialScale = 0.7f, transformOrigin = TransformOrigin(1f, 0.5f)) +
-                slideInHorizontally { it / 3 },
-            exit = fadeOut() +
-                scaleOut(targetScale = 0.7f, transformOrigin = TransformOrigin(1f, 0.5f)) +
-                slideOutHorizontally { it / 3 },
+            enter = fadeIn() + slideInHorizontally { it / 6 },
+            exit = fadeOut() + slideOutHorizontally { it / 6 },
         ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                placeholder = { Text("Search") },
-                singleLine = true,
-                shape = CircleShape,
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
+            ChatSearchField(
+                query = query,
+                onQueryChange = onQueryChange,
             )
-            // request focus once the field is actually in the tree,
-            // asking earlier is what crashed the app
-            LaunchedEffect(Unit) {
-                runCatching { focusRequester.requestFocus() }
-            }
         }
+    }
+}
+
+@Composable
+private fun ChatSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        placeholder = { Text("Search") },
+        singleLine = true,
+        shape = CircleShape,
+        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester),
+    )
+
+    // focus once the field is really in the tree
+    LaunchedEffect(Unit) {
+        runCatching { focusRequester.requestFocus() }
     }
 }
 
