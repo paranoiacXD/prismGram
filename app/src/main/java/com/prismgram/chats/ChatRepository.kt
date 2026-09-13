@@ -24,6 +24,8 @@ sealed interface ChatUiState {
         val canSend: Boolean,
         val pinnedText: String?,
         val pinnedMessageId: Long?,
+        val pinnedIndex: Int,
+        val pinnedCount: Int,
         val typing: Boolean,
         val replyToId: Long?,
         val replyToText: String?,
@@ -60,6 +62,7 @@ class ChatRepository(private val td: TdClient) {
     private var lastTypingSentAt = 0L
     private var jumpTargetId: Long? = null
     private var pinnedOpen = false
+    private var pinnedIndex = 0
     @Volatile private var pinnedMessages: List<MessageItem> = emptyList()
 
     private var selfUserId = 0L
@@ -117,6 +120,7 @@ class ChatRepository(private val td: TdClient) {
         lastTypingSentAt = 0L
         jumpTargetId = null
         pinnedOpen = false
+        pinnedIndex = 0
         pinnedMessages = emptyList()
         _state.value = ChatUiState.Loading
 
@@ -126,7 +130,7 @@ class ChatRepository(private val td: TdClient) {
             }
             loadChatMeta()
             loadInitial()
-            loadPinned()
+            loadPinnedMessages()
         }
     }
 
@@ -143,6 +147,7 @@ class ChatRepository(private val td: TdClient) {
         typingResetJob?.cancel()
         jumpTargetId = null
         pinnedOpen = false
+        pinnedIndex = 0
         pinnedMessages = emptyList()
         _state.value = ChatUiState.Closed
     }
@@ -276,20 +281,27 @@ class ChatRepository(private val td: TdClient) {
         emit()
     }
 
-    // load the timeline around a specific message (pinned tap)
+    // load the timeline around a specific message (pinned tap).
+    // merges into what we already have, it must never wipe the timeline
     fun jumpToMessage(messageId: Long) {
         val id = chatId
         if (id == 0L) return
+
+        val alreadyLoaded = synchronized(messages) { messages.containsKey(messageId) }
+        if (alreadyLoaded) {
+            jumpTargetId = messageId
+            emit()
+            return
+        }
+
         scope.launch {
             val target = runCatching { td.await(TdApi.GetMessage(id, messageId)) }.getOrNull()
             val history = runCatching { td.await(TdApi.GetChatHistory(id, messageId, 0, 40, false)) }.getOrNull()
 
             synchronized(messages) {
-                messages.clear()
                 target?.let { messages[it.id] = it }
                 history?.messages?.forEach { messages[it.id] = it }
             }
-            atEnd = false
             jumpTargetId = messageId
             emit()
         }
@@ -301,11 +313,27 @@ class ChatRepository(private val td: TdClient) {
         emit()
     }
 
+    // tapping the pinned bar cycles through every pinned message
+    fun cyclePinned() {
+        val pins = pinnedMessages
+        if (pins.isEmpty()) {
+            scope.launch { loadPinnedMessages() }
+            return
+        }
+        pinnedIndex = (pinnedIndex + 1) % pins.size
+        val pin = pins[pinnedIndex]
+        pinnedMessageId = pin.id
+        pinnedText = pin.text.take(90).ifBlank { "Pinned message" }
+        jumpToMessage(pin.id)
+    }
+
     fun openPinned() {
         if (pinnedOpen) return
         pinnedOpen = true
         emit()
-        scope.launch { loadPinnedMessages() }
+        if (pinnedMessages.isEmpty()) {
+            scope.launch { loadPinnedMessages() }
+        }
     }
 
     fun closePinned() {
@@ -334,6 +362,17 @@ class ChatRepository(private val td: TdClient) {
         val byId = synchronized(messages) { messages.toMap() }
         val items = result.messages.map { buildItem(it, byId) }
         pinnedMessages = items
+
+        if (items.isEmpty()) {
+            pinnedIndex = 0
+            pinnedMessageId = 0L
+            pinnedText = null
+        } else {
+            if (pinnedIndex >= items.size) pinnedIndex = 0
+            val current = items[pinnedIndex]
+            pinnedMessageId = current.id
+            pinnedText = current.text.take(90).ifBlank { "Pinned message" }
+        }
         emit()
     }
 
@@ -372,16 +411,6 @@ class ChatRepository(private val td: TdClient) {
         result.messages.firstOrNull { !it.isOutgoing }?.let { markRead(longArrayOf(it.id)) }
 
         emit()
-    }
-
-    private suspend fun loadPinned() {
-        val id = chatId
-        val message = runCatching { td.await(TdApi.GetChatPinnedMessage(id)) }.getOrNull() ?: return
-        if (message.id != 0L) {
-            pinnedMessageId = message.id
-            pinnedText = messageBody(message.content).take(90).ifBlank { "Pinned message" }
-            emit()
-        }
     }
 
     private fun markRead(messageIds: LongArray) {
@@ -445,14 +474,7 @@ class ChatRepository(private val td: TdClient) {
 
             is TdApi.UpdateMessageIsPinned -> {
                 if (update.chatId != chatId) return
-                if (update.isPinned) {
-                    pinnedMessageId = update.messageId
-                    scope.launch { loadPinned() }
-                } else if (update.messageId == pinnedMessageId) {
-                    pinnedMessageId = 0L
-                    pinnedText = null
-                    scope.launch { loadPinned() }
-                }
+                scope.launch { loadPinnedMessages() }
             }
 
             is TdApi.UpdateFile -> {
@@ -654,6 +676,7 @@ class ChatRepository(private val td: TdClient) {
             mediaPath = mediaPaths[message.id],
             durationLabel = mediaDuration(content)?.let { formatDuration(it) },
             showEmoji = (content as? TdApi.MessageSticker)?.sticker?.emoji,
+            stickerFormat = stickerFormatOf(content),
             replyToName = replyName,
             replyToText = replyText,
             edited = message.editDate > 0,
@@ -703,6 +726,8 @@ class ChatRepository(private val td: TdClient) {
             canSend = canSend,
             pinnedText = pinnedText,
             pinnedMessageId = pinnedMessageId.takeIf { it != 0L },
+            pinnedIndex = pinnedIndex,
+            pinnedCount = pinnedMessages.size,
             typing = typing,
             replyToId = replyToId,
             replyToText = replyToText,

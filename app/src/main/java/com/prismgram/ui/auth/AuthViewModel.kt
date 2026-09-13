@@ -12,6 +12,7 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
     val state: StateFlow<AuthState> = repository.state
     val busy: StateFlow<Boolean> = repository.busy
     val errors: SharedFlow<String> = repository.errors
+    val error: StateFlow<String?> = repository.error
 
     init {
         repository.start()
@@ -24,6 +25,10 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
     fun submitPassword(password: String) = repository.submitPassword(password)
 
     fun resendCode() = repository.resendCode()
+
+    fun resetSession() = repository.resetSession()
+
+    fun clearError() = repository.clearError()
 
     companion object {
         fun factory(repository: AuthRepository): ViewModelProvider.Factory =

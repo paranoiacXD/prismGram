@@ -41,6 +41,8 @@ class ChatViewModel(private val repository: ChatRepository) : ViewModel() {
 
     fun closePinned() = repository.closePinned()
 
+    fun cyclePinned() = repository.cyclePinned()
+
     fun toggleReaction(messageId: Long, emoji: String, chosen: Boolean) =
         repository.toggleReaction(messageId, emoji, chosen)
 

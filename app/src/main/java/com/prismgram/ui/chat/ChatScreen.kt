@@ -86,6 +86,7 @@ import com.prismgram.chats.ChatUiState
 import com.prismgram.chats.MessageItem
 import com.prismgram.chats.MessageMedia
 import com.prismgram.chats.ReactionItem
+import com.prismgram.chats.StickerFormat
 import com.prismgram.ui.common.ErrorPanel
 import com.prismgram.ui.common.LoadingScreen
 import kotlinx.coroutines.Dispatchers
@@ -111,6 +112,7 @@ fun ChatScreen(
     onConsumeJump: () -> Unit,
     onOpenPinned: () -> Unit,
     onClosePinned: () -> Unit,
+    onCyclePinned: () -> Unit,
     onToggleReaction: (Long, String, Boolean) -> Unit,
 ) {
     val ready = state as? ChatUiState.Ready
@@ -130,7 +132,9 @@ fun ChatScreen(
             if (ready?.pinnedText != null) {
                 PinnedBar(
                     text = ready.pinnedText,
-                    onClick = { ready.pinnedMessageId?.let(onJumpTo) },
+                    index = ready.pinnedIndex,
+                    count = ready.pinnedCount,
+                    onClick = onCyclePinned,
                     onLongClick = onOpenPinned,
                 )
             }
@@ -297,7 +301,13 @@ private fun ChatTopBar(state: ChatUiState, onBack: () -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PinnedBar(text: String, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun PinnedBar(
+    text: String,
+    index: Int,
+    count: Int,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     Column {
         Row(
             modifier = Modifier
@@ -315,7 +325,11 @@ private fun PinnedBar(text: String, onClick: () -> Unit, onLongClick: () -> Unit
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Pinned message",
+                    text = if (count > 1) {
+                        "Pinned message ${index + 1}/$count"
+                    } else {
+                        "Pinned message"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -584,6 +598,19 @@ private fun DaySeparator(label: String) {
 private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit) {
     val path = message.mediaPath
     var failed by remember(path) { mutableStateOf(false) }
+    val emoji = message.showEmoji ?: "\uD83D\uDC45"
+
+    // the format from tdlib is what counts, file names in the tdlib cache
+    // have no extension. magic bytes are a backup when the format is unknown
+    val isTgs by produceState(
+        initialValue = message.stickerFormat == StickerFormat.TGS,
+        path,
+        message.stickerFormat,
+    ) {
+        if (!value && path != null && message.stickerFormat != StickerFormat.WEBP) {
+            value = withContext(Dispatchers.IO) { hasGzipMagic(path) }
+        }
+    }
 
     Box(
         modifier = Modifier.combinedClickable(
@@ -591,11 +618,8 @@ private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit
             onLongClick = { onLongPress(message) },
         ),
     ) {
-        val emoji = message.showEmoji ?: "\uD83D\uDC45"
-
         when {
-            // animated stickers are tgs, lottie draws those
-            path != null && !failed && path.endsWith(".tgs") -> LottieSticker(
+            path != null && !failed && isTgs -> LottieSticker(
                 path = path,
                 fallbackEmoji = emoji,
                 modifier = Modifier.size(140.dp),
@@ -623,19 +647,17 @@ private fun StickerView(message: MessageItem, onLongPress: (MessageItem) -> Unit
     }
 }
 
+// tgs is gzipped json, so it always starts with the gzip magic bytes
+private fun hasGzipMagic(path: String): Boolean = runCatching {
+    FileInputStream(path).use { input ->
+        input.read() == 0x1F && input.read() == 0x8B
+    }
+}.getOrDefault(false)
+
 @Composable
 private fun LottieSticker(path: String, fallbackEmoji: String, modifier: Modifier = Modifier) {
-    // tgs files are gzipped lottie json, so they need a gunzip first
     val composition by produceState<LottieComposition?>(initialValue = null, path) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                FileInputStream(path).use { fileInput ->
-                    val stream = if (path.endsWith(".tgs")) GZIPInputStream(fileInput) else fileInput
-                    LottieCompositionFactory.fromJsonInputStreamSync(stream, path).value
-                }
-            }.onFailure { Log.e("ChatScreen", "lottie failed for $path", it) }
-                .getOrNull()
-        }
+        value = withContext(Dispatchers.IO) { loadLottie(path) }
     }
 
     if (composition != null) {
@@ -657,6 +679,22 @@ private fun LottieSticker(path: String, fallbackEmoji: String, modifier: Modifie
             )
         }
     }
+}
+
+// tgs is gzipped lottie json, so gunzip first. some files are plain json
+private fun loadLottie(path: String): LottieComposition? {
+    runCatching {
+        GZIPInputStream(FileInputStream(path)).use { input ->
+            LottieCompositionFactory.fromJsonInputStreamSync(input, path).value
+        }
+    }.getOrNull()?.let { return it }
+
+    return runCatching {
+        FileInputStream(path).use { input ->
+            LottieCompositionFactory.fromJsonInputStreamSync(input, path).value
+        }
+    }.onFailure { Log.e("ChatScreen", "lottie failed for $path", it) }
+        .getOrNull()
 }
 
 @OptIn(ExperimentalFoundationApi::class)

@@ -93,6 +93,7 @@ fun PrismGramRoot(
 ) {
     val authState by authViewModel.state.collectAsState()
     val busy by authViewModel.busy.collectAsState()
+    val authError by authViewModel.error.collectAsState()
     val accountState by accountViewModel.state.collectAsState()
     val chatListState by chatListViewModel.state.collectAsState()
     val chatListFolders by chatListViewModel.folders.collectAsState()
@@ -127,9 +128,10 @@ fun PrismGramRoot(
                 accountViewModel.load()
             }
             is AuthState.WaitPhoneNumber -> {
+                // stay on the login flow until its actually ready, just drop
+                // any half open screens
                 showPhoneEntry = false
                 backStack.clear()
-                screen = Screen.Chats
             }
             else -> Unit
         }
@@ -238,6 +240,7 @@ fun PrismGramRoot(
                                     onConsumeJump = { chatViewModel.consumeJump() },
                                     onOpenPinned = { chatViewModel.openPinned() },
                                     onClosePinned = { chatViewModel.closePinned() },
+                                    onCyclePinned = { chatViewModel.cyclePinned() },
                                     onToggleReaction = { id, emoji, chosen ->
                                         chatViewModel.toggleReaction(id, emoji, chosen)
                                     },
@@ -248,20 +251,32 @@ fun PrismGramRoot(
                 }
 
                 showPhoneEntry ->
-                    PhoneScreen(busy) {
-                        showPhoneEntry = false
-                        authViewModel.submitPhoneNumber(it)
-                    }
+                    PhoneScreen(
+                        busy = busy,
+                        error = authError,
+                        onSubmit = {
+                            showPhoneEntry = false
+                            authViewModel.submitPhoneNumber(it)
+                        },
+                        onResetSession = { authViewModel.resetSession() },
+                        onClearError = { authViewModel.clearError() },
+                    )
 
                 state is AuthState.Initializing -> LoadingScreen("Connecting to Telegram…")
 
-                state is AuthState.WaitPhoneNumber -> PhoneScreen(busy) {
-                    authViewModel.submitPhoneNumber(it)
-                }
+                state is AuthState.WaitPhoneNumber -> PhoneScreen(
+                    busy = busy,
+                    error = authError,
+                    onSubmit = { authViewModel.submitPhoneNumber(it) },
+                    onResetSession = { authViewModel.resetSession() },
+                    onClearError = { authViewModel.clearError() },
+                )
 
                 state is AuthState.WaitCode -> CodeScreen(
                     codeInfo = state.codeInfo,
                     busy = busy,
+                    error = authError,
+                    onClearError = { authViewModel.clearError() },
                     onResend = { authViewModel.resendCode() },
                     onBack = { showPhoneEntry = true },
                 ) { authViewModel.submitCode(it) }

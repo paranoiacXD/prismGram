@@ -9,6 +9,10 @@ import java.time.format.DateTimeFormatter
 
 enum class MessageMedia { NONE, PHOTO, VIDEO, STICKER, GIF }
 
+// what kind of sticker file we're holding. never guess from the file extension,
+// tdlib picks its own cache names without one
+enum class StickerFormat { WEBP, TGS, WEBM, UNKNOWN }
+
 data class ReactionItem(val emoji: String, val count: Int, val chosen: Boolean)
 
 data class MessageItem(
@@ -21,6 +25,7 @@ data class MessageItem(
     val mediaPath: String?,
     val durationLabel: String?,
     val showEmoji: String?,
+    val stickerFormat: StickerFormat?,
     val replyToName: String?,
     val replyToText: String?,
     val edited: Boolean,
@@ -91,19 +96,28 @@ fun mediaKind(content: TdApi.MessageContent?): MessageMedia = when (content) {
     else -> MessageMedia.NONE
 }
 
-// the file we actually download and draw. for videos and gifs that means the
-// thumbnail, for photos the biggest reasonable size
+fun stickerFormatOf(content: TdApi.MessageContent?): StickerFormat? {
+    val sticker = (content as? TdApi.MessageSticker)?.sticker ?: return null
+    return when (sticker.format) {
+        is TdApi.StickerFormatWebp -> StickerFormat.WEBP
+        is TdApi.StickerFormatTgs -> StickerFormat.TGS
+        is TdApi.StickerFormatWebm -> StickerFormat.WEBM
+        else -> StickerFormat.UNKNOWN
+    }
+}
+
+// the file we actually download and draw.
+// tgs/webp use the sticker itself, webm (video stickers) fall back to the
+// thumbnail so we never end up with an empty bubble
 fun mediaFile(content: TdApi.MessageContent?): TdApi.File? = when (content) {
     is TdApi.MessagePhoto ->
         (content.photo.sizes.firstOrNull { it.width >= 400 } ?: content.photo.sizes.lastOrNull())?.photo
     is TdApi.MessageVideo -> content.video.thumbnail?.file
     is TdApi.MessageAnimation -> content.animation.thumbnail?.file
-    // tgs is drawn by lottie, webp by coil. webm (video stickers) cant be
-    // drawn so those fall back to the emoji.
-    // NOTE: never match on javaClass.simpleName, r8 renames classes in release
     is TdApi.MessageSticker -> when (content.sticker.format) {
         is TdApi.StickerFormatWebp, is TdApi.StickerFormatTgs -> content.sticker.sticker
-        else -> null
+        is TdApi.StickerFormatWebm -> content.sticker.thumbnail?.file
+        else -> content.sticker.thumbnail?.file
     }
     else -> null
 }

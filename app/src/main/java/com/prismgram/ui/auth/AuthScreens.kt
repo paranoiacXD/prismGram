@@ -19,12 +19,15 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,11 +53,19 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.prismgram.auth.AuthState
+import com.prismgram.log.AppLogger
 import com.prismgram.ui.common.PrimaryButton
+import kotlinx.coroutines.delay
 import org.drinkless.tdlib.TdApi
 
 @Composable
-fun PhoneScreen(busy: Boolean, onSubmit: (String) -> Unit) {
+fun PhoneScreen(
+    busy: Boolean,
+    error: String?,
+    onSubmit: (String) -> Unit,
+    onResetSession: () -> Unit = {},
+    onClearError: () -> Unit = {},
+) {
     val context = LocalContext.current
     val deviceCountry = remember { Countries.defaultFor(context) }
 
@@ -61,6 +73,9 @@ fun PhoneScreen(busy: Boolean, onSubmit: (String) -> Unit) {
     var manualSelection by rememberSaveable { mutableStateOf(false) }
     var nationalNumber by rememberSaveable { mutableStateOf("") }
     var pickerOpen by rememberSaveable { mutableStateOf(false) }
+    var showLog by rememberSaveable { mutableStateOf(false) }
+    var logText by remember { mutableStateOf("") }
+    var confirmReset by rememberSaveable { mutableStateOf(false) }
 
     val selectedCountry = Countries.byIso(countryIso)
 
@@ -79,6 +94,7 @@ fun PhoneScreen(busy: Boolean, onSubmit: (String) -> Unit) {
             onNumberChange = { input ->
                 val digits = input.filter { it.isDigit() }.take(15)
                 nationalNumber = digits
+                onClearError()
                 if (!manualSelection) {
                     Countries.guess(digits, deviceCountry)?.let { countryIso = it.iso }
                 }
@@ -86,8 +102,46 @@ fun PhoneScreen(busy: Boolean, onSubmit: (String) -> Unit) {
             onPickCountry = { pickerOpen = true },
             onSubmit = { submit() },
         )
-        Spacer(Modifier.height(20.dp))
+
+        Spacer(Modifier.height(12.dp))
+
+        Text(
+            text = "If you already have Telegram on another device, the code shows up in the " +
+                "official Telegram app (a message from \u201cTelegram\u201d) instead of by SMS.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(16.dp))
         PrimaryButton("Continue", busy, enabled = nationalNumber.isNotBlank()) { submit() }
+
+        if (!error.isNullOrBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        TextButton(
+            onClick = { confirmReset = true },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Clear session (fix a stuck login)")
+        }
+
+        TextButton(
+            onClick = {
+                logText = AppLogger.readTail()
+                showLog = true
+            },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Show log")
+        }
     }
 
     if (pickerOpen) {
@@ -98,6 +152,51 @@ fun PhoneScreen(busy: Boolean, onSubmit: (String) -> Unit) {
                 pickerOpen = false
             },
             onDismiss = { pickerOpen = false },
+        )
+    }
+
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Clear session?") },
+            text = {
+                Text(
+                    "This deletes the local TDLib database and restarts the app. " +
+                        "Use it if login is stuck.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmReset = false
+                        onResetSession()
+                    },
+                ) {
+                    Text("Clear and restart")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (showLog) {
+        AlertDialog(
+            onDismissRequest = { showLog = false },
+            title = { Text("App log") },
+            text = {
+                Text(
+                    text = logText.ifBlank { "Log is empty so far. Press Continue once, then come back." },
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showLog = false }) { Text("Close") }
+            },
         )
     }
 }
@@ -180,12 +279,24 @@ private fun PhoneInput(
 fun CodeScreen(
     codeInfo: TdApi.AuthenticationCodeInfo?,
     busy: Boolean,
+    error: String?,
+    onClearError: () -> Unit = {},
     onResend: () -> Unit,
     onBack: () -> Unit,
     onSubmit: (String) -> Unit,
 ) {
     var code by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
+
+    val timeout = codeInfo?.timeout ?: 0
+    var secondsLeft by remember(timeout) { mutableStateOf(timeout) }
+    LaunchedEffect(timeout) {
+        secondsLeft = timeout
+        while (secondsLeft > 0) {
+            delay(1000)
+            secondsLeft--
+        }
+    }
 
     val destination = when (codeInfo?.type) {
         is TdApi.AuthenticationCodeTypeTelegramMessage -> "in the Telegram app"
@@ -194,6 +305,11 @@ fun CodeScreen(
         is TdApi.AuthenticationCodeTypeFlashCall -> "by flash call"
         is TdApi.AuthenticationCodeTypeMissedCall -> "by a missed call"
         else -> "on your logged-in Telegram devices"
+    }
+    val nextDestination = when (codeInfo?.nextType) {
+        is TdApi.AuthenticationCodeTypeSms -> "The next code will arrive by SMS."
+        is TdApi.AuthenticationCodeTypeCall -> "The next code will arrive by phone call."
+        else -> null
     }
     val phone = codeInfo?.phoneNumber
     val subtitle = buildString {
@@ -204,12 +320,19 @@ fun CodeScreen(
             append("\nOpen the official Telegram app on any logged-in device and look for the ")
             append("message from \u201cTelegram\u201d.")
         }
+        if (nextDestination != null) {
+            append("\n")
+            append(nextDestination)
+        }
     }
 
     AuthScaffold(title = "Enter the code", subtitle = subtitle, onBack = onBack) {
         OutlinedTextField(
             value = code,
-            onValueChange = { input -> code = input.filter { it.isDigit() }.take(6) },
+            onValueChange = { input ->
+                code = input.filter { it.isDigit() }.take(6)
+                onClearError()
+            },
             label = { Text("Code") },
             singleLine = true,
             shape = MaterialTheme.shapes.large,
@@ -227,15 +350,31 @@ fun CodeScreen(
             },
             modifier = Modifier.fillMaxWidth(),
         )
+
+        if (!error.isNullOrBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
         Spacer(Modifier.height(20.dp))
         PrimaryButton("Continue", busy, enabled = code.isNotBlank()) { onSubmit(code) }
         Spacer(Modifier.height(4.dp))
         TextButton(
             onClick = onResend,
-            enabled = !busy,
+            enabled = !busy && secondsLeft <= 0,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Didn't get it? Resend code")
+            Text(
+                if (secondsLeft > 0) {
+                    "Resend available in ${secondsLeft}s"
+                } else {
+                    "Didn't get it? Resend code"
+                },
+            )
         }
         if (codeInfo?.type is TdApi.AuthenticationCodeTypeTelegramMessage) {
             TextButton(
