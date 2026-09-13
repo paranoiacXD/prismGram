@@ -70,14 +70,20 @@ class AuthRepository(
     }
 
     fun submitPhoneNumber(phoneNumber: String) = runRequest {
-        // tdlib wants explicit settings here, null can skip dispatch
+        // these flags tell telegram which fallback channels it may use. leaving
+        // them all false means app-delivery only and nextType always null,
+        // which leaves resend impossible
         val settings = TdApi.PhoneNumberAuthenticationSettings().apply {
-            allowFlashCall = false
-            allowMissedCall = false
-            isCurrentPhoneNumber = false
+            allowFlashCall = true
+            allowMissedCall = true
+            isCurrentPhoneNumber = true
             allowSmsRetrieverApi = false
         }
-        AppLogger.log(TAG, "asking telegram for a code: ${masked(phoneNumber)}")
+        AppLogger.log(
+            TAG,
+            "asking telegram for a code: ${masked(phoneNumber)} " +
+                "(flash=true missed=true current=true)",
+        )
         td.await(TdApi.SetAuthenticationPhoneNumber(phoneNumber, settings))
         AppLogger.log(TAG, "code request accepted by tdlib")
     }
