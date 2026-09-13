@@ -5,6 +5,7 @@ import org.drinkless.tdlib.TdApi
 sealed interface AuthState {
     data object Initializing : AuthState
     data object WaitPhoneNumber : AuthState
+    data class WaitQrConfirmation(val link: String) : AuthState
     data class WaitCode(val codeInfo: TdApi.AuthenticationCodeInfo?) : AuthState
     data class WaitPassword(
         val hint: String,

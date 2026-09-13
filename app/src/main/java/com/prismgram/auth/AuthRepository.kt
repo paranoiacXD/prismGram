@@ -91,7 +91,15 @@ class AuthRepository(
     }
 
     fun resendCode() = runRequest {
-        td.await(TdApi.ResendAuthenticationCode())
+        // only ever works when telegram offered an alternative type, see the
+        // td_api docs on resendAuthenticationCode
+        td.await(TdApi.ResendAuthenticationCode(TdApi.ResendCodeReasonUserRequest()))
+    }
+
+    // log in by scanning a qr on a device thats already logged in. no code at all
+    fun requestQrLogin() = runRequest {
+        AppLogger.log(TAG, "requesting QR login")
+        td.await(TdApi.RequestQrCodeAuthentication(longArrayOf()))
     }
 
     private fun runRequest(block: suspend () -> Unit) {
@@ -140,6 +148,10 @@ class AuthRepository(
                         "timeout=${info?.timeout}s next=${info?.nextType?.javaClass?.simpleName}",
                 )
                 _state.value = AuthState.WaitCode(state.codeInfo)
+            }
+            is TdApi.AuthorizationStateWaitOtherDeviceConfirmation -> {
+                AppLogger.log(TAG, "waiting for qr confirmation")
+                _state.value = AuthState.WaitQrConfirmation(state.link)
             }
             is TdApi.AuthorizationStateWaitPassword -> _state.value = AuthState.WaitPassword(
                 hint = state.passwordHint.orEmpty(),

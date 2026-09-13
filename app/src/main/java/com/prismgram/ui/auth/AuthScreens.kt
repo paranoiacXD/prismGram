@@ -4,6 +4,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,12 +43,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -52,10 +60,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import com.prismgram.auth.AuthState
 import com.prismgram.log.AppLogger
 import com.prismgram.ui.common.PrimaryButton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 
 @Composable
@@ -65,6 +77,7 @@ fun PhoneScreen(
     onSubmit: (String) -> Unit,
     onResetSession: () -> Unit = {},
     onClearError: () -> Unit = {},
+    onQrLogin: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val deviceCountry = remember { Countries.defaultFor(context) }
@@ -114,6 +127,14 @@ fun PhoneScreen(
 
         Spacer(Modifier.height(16.dp))
         PrimaryButton("Continue", busy, enabled = nationalNumber.isNotBlank()) { submit() }
+
+        TextButton(
+            onClick = onQrLogin,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Log in with QR code instead")
+        }
 
         if (!error.isNullOrBlank()) {
             Spacer(Modifier.height(10.dp))
@@ -276,6 +297,94 @@ private fun PhoneInput(
 }
 
 @Composable
+fun QrLoginScreen(
+    link: String,
+    busy: Boolean,
+    error: String?,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val qr by produceState<android.graphics.Bitmap?>(initialValue = null, link) {
+        value = withContext(Dispatchers.Default) { generateQrBitmap(link) }
+    }
+
+    AuthScaffold(
+        title = "Scan this QR code",
+        subtitle = "Open Telegram on your phone or another logged-in device, go to " +
+            "Settings \u2192 Devices \u2192 Link Desktop Device, then scan this code. " +
+            "No login code needed.",
+        onBack = onBack,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(MaterialTheme.shapes.large)
+                .background(Color.White),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (qr != null) {
+                Image(
+                    bitmap = qr!!.asImageBitmap(),
+                    contentDescription = "Login QR code",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                )
+            } else {
+                CircularProgressIndicator()
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "The code refreshes on its own, keep this screen open.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        if (!error.isNullOrBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        TextButton(
+            onClick = { openTelegramApp(context) },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Open Telegram")
+        }
+    }
+}
+
+// zxing needs a bitmap, drawn on a background thread and cached per link
+private fun generateQrBitmap(text: String): android.graphics.Bitmap? {
+    if (text.isBlank()) return null
+    return runCatching {
+        val size = 720
+        val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size)
+        val pixels = IntArray(size * size)
+        for (y in 0 until size) {
+            val row = y * size
+            for (x in 0 until size) {
+                pixels[row + x] = if (matrix[x, y]) BLACK else WHITE
+            }
+        }
+        android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565).apply {
+            setPixels(pixels, 0, size, 0, 0, size, size)
+        }
+    }.getOrNull()
+}
+
+private const val BLACK = 0xFF000000.toInt()
+private const val WHITE = 0xFFFFFFFF.toInt()
+
+@Composable
 fun CodeScreen(
     codeInfo: TdApi.AuthenticationCodeInfo?,
     busy: Boolean,
@@ -363,17 +472,28 @@ fun CodeScreen(
         Spacer(Modifier.height(20.dp))
         PrimaryButton("Continue", busy, enabled = code.isNotBlank()) { onSubmit(code) }
         Spacer(Modifier.height(4.dp))
-        TextButton(
-            onClick = onResend,
-            enabled = !busy && secondsLeft <= 0,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        // resend only exists when telegram offered another delivery type,
+        // otherwise the button just errors forever
+        if (codeInfo?.nextType != null) {
+            TextButton(
+                onClick = onResend,
+                enabled = !busy && secondsLeft <= 0,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (secondsLeft > 0) {
+                        "Resend available in ${secondsLeft}s"
+                    } else {
+                        "Didn't get it? Resend code"
+                    },
+                )
+            }
+        } else {
             Text(
-                if (secondsLeft > 0) {
-                    "Resend available in ${secondsLeft}s"
-                } else {
-                    "Didn't get it? Resend code"
-                },
+                text = "Telegram is only delivering this code to your Telegram app, " +
+                    "there is no SMS option for it right now.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (codeInfo?.type is TdApi.AuthenticationCodeTypeTelegramMessage) {

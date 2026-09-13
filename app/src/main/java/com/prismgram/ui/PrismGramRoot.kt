@@ -68,6 +68,7 @@ import com.prismgram.ui.auth.AuthViewModel
 import com.prismgram.ui.auth.CodeScreen
 import com.prismgram.ui.auth.PasswordScreen
 import com.prismgram.ui.auth.PhoneScreen
+import com.prismgram.ui.auth.QrLoginScreen
 import com.prismgram.ui.chat.ChatScreen
 import com.prismgram.ui.chat.ChatViewModel
 import com.prismgram.ui.chats.ChatListScreen
@@ -260,6 +261,7 @@ fun PrismGramRoot(
                         },
                         onResetSession = { authViewModel.resetSession() },
                         onClearError = { authViewModel.clearError() },
+                        onQrLogin = { authViewModel.requestQrLogin() },
                     )
 
                 state is AuthState.Initializing -> LoadingScreen("Connecting to Telegram…")
@@ -270,6 +272,7 @@ fun PrismGramRoot(
                     onSubmit = { authViewModel.submitPhoneNumber(it) },
                     onResetSession = { authViewModel.resetSession() },
                     onClearError = { authViewModel.clearError() },
+                    onQrLogin = { authViewModel.requestQrLogin() },
                 )
 
                 state is AuthState.WaitCode -> CodeScreen(
@@ -280,6 +283,13 @@ fun PrismGramRoot(
                     onResend = { authViewModel.resendCode() },
                     onBack = { showPhoneEntry = true },
                 ) { authViewModel.submitCode(it) }
+
+                state is AuthState.WaitQrConfirmation -> QrLoginScreen(
+                    link = state.link,
+                    busy = busy,
+                    error = authError,
+                    onBack = { showPhoneEntry = true },
+                )
 
                 state is AuthState.WaitPassword -> PasswordScreen(
                     state = state,

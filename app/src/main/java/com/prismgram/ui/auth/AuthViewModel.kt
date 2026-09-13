@@ -28,6 +28,8 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
 
     fun resetSession() = repository.resetSession()
 
+    fun requestQrLogin() = repository.requestQrLogin()
+
     fun clearError() = repository.clearError()
 
     companion object {

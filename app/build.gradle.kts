@@ -97,6 +97,8 @@ dependencies {
     // animated webp + gif decoding, telegram "static" stickers are often animated webp
     implementation("io.coil-kt:coil-gif:2.7.0")
     implementation("com.airbnb.android:lottie-compose:6.6.6")
+    // qr login, so you never need a code when another device is logged in
+    implementation("com.google.zxing:core:3.5.3")
     implementation("com.googlecode.libphonenumber:libphonenumber:8.13.44")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
